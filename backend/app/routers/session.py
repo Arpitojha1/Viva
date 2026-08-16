@@ -1,13 +1,14 @@
 """
 Viva — Session Router
-POST /api/session — create a session, run retrieval, generate initial questions.
+POST /api/session — create a session, commit it, then kick off question
+                    generation as a FastAPI BackgroundTask.
 GET  /api/session/{session_id} — get session status.
 """
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models import Resume, Session
@@ -17,6 +18,82 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["session"])
 
+
+# ---------------------------------------------------------------------------
+# Background question-generation task
+# ---------------------------------------------------------------------------
+
+async def _generate_initial_questions(session_id: int, resume_id: int, role: str, db: AsyncSession) -> None:
+    """
+    Runs synchronously before the HTTP response is sent.
+    Uses the request's db session.
+    """
+    from app.services.retrieval import build_retrieval_queries, retrieve_chunks
+    from app.services.question_generator import generate_questions
+    from app.schemas import ExtractedResumeData
+    from app.models import Resume, Session, Question
+    from app.config import get_settings
+
+    settings = get_settings()
+
+    try:
+            resume = await db.get(Resume, resume_id)
+            if resume is None:
+                logger.error("Background task: resume %d not found", resume_id)
+                return
+
+            session_row = await db.get(Session, session_id)
+            if session_row is None:
+                logger.error("Background task: session %d not found", session_id)
+                return
+
+            resume_data = ExtractedResumeData(**(resume.extracted_skills or {}))
+
+            queries = await build_retrieval_queries(resume_data, role)
+            chunks = await retrieve_chunks(
+                queries=queries,
+                db=db,
+                top_k=5,
+                difficulty_target=session_row.difficulty_target,
+            )
+
+            questions = await generate_questions(
+                chunks=chunks,
+                resume_data=resume_data,
+                role=role,
+                count=settings.initial_question_count,
+            )
+
+            for idx, q in enumerate(questions):
+                question_row = Question(
+                    session_id=session_id,
+                    chunk_ids=q.chunk_ids,
+                    question_text=q.question_text,
+                    difficulty=q.difficulty,
+                    order_index=idx,
+                    is_adaptive_followup=False,
+                )
+                db.add(question_row)
+
+            # Wait to commit the transaction until generation completes successfully
+            logger.info(
+                "Synchronously generated %d questions for session %d",
+                len(questions),
+                session_id,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "Question generation failed for session %d: %s",
+                session_id,
+                exc,
+                exc_info=True,
+            )
+            raise
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @router.post(
     "/session",
@@ -30,7 +107,7 @@ async def create_session(
 ) -> SessionResponse:
     """
     Create a new interview session for a previously uploaded resume.
-    Triggers retrieval + question generation (5 initial questions).
+    Triggers retrieval + question generation synchronously before returning.
     """
     # Verify resume exists
     resume = await db.get(Resume, body.resumeId)
@@ -40,7 +117,7 @@ async def create_session(
             detail=f"Resume {body.resumeId} not found.",
         )
 
-    # Create session row
+    # Create and persist the session row
     session_row = Session(
         resume_id=resume.id,
         user_id=None,
@@ -52,59 +129,16 @@ async def create_session(
     await db.flush()
     await db.refresh(session_row)
 
-    logger.info("Session created: id=%d, resume_id=%d", session_row.id, resume.id)
+    session_id = session_row.id
+    logger.info("Session created: id=%d, resume_id=%d", session_id, resume.id)
 
-    # Generate initial questions in the background after returning the session ID.
-    # We trigger this as a deferred task so the frontend gets the session ID fast.
-    # Questions are generated before the first /next-question call arrives.
-    try:
-        from app.services.retrieval import build_retrieval_queries, retrieve_chunks
-        from app.services.question_generator import generate_questions
-        from app.config import get_settings
-        import json
-
-        settings = get_settings()
-        resume_data_dict = resume.extracted_skills
-        from app.schemas import ExtractedResumeData
-        resume_data = ExtractedResumeData(**resume_data_dict)
-
-        queries = await build_retrieval_queries(resume_data, body.role)
-        chunks = await retrieve_chunks(
-            queries=queries,
-            db=db,
-            top_k=5,
-            difficulty_target=session_row.difficulty_target,
-        )
-
-        questions = await generate_questions(
-            chunks=chunks,
-            resume_data=resume_data,
-            role=body.role,
-            count=settings.initial_question_count,
-        )
-
-        from app.models import Question
-        for idx, q in enumerate(questions):
-            question_row = Question(
-                session_id=session_row.id,
-                chunk_ids=q.chunk_ids,
-                question_text=q.question_text,
-                difficulty=q.difficulty,
-                order_index=idx,
-                is_adaptive_followup=False,
-            )
-            db.add(question_row)
-
-        logger.info(
-            "Generated %d initial questions for session %d", len(questions), session_row.id
-        )
-    except Exception as exc:
-        logger.error("Question generation failed for session %d: %s", session_row.id, exc, exc_info=True)
-        # Don't fail the session creation — the interview can still start,
-        # but /next-question will return an error if no questions exist.
+    # Generate initial questions synchronously (in the same request session).
+    # Since get_db auto-commits on success, this will commit the session and questions together.
+    # We pass the active db session instead of creating a new one.
+    await _generate_initial_questions(session_id, resume.id, body.role, db)
 
     return SessionResponse(
-        id=str(session_row.id),
+        id=str(session_id),
         role=session_row.role,
         status=session_row.status,
     )
@@ -126,7 +160,6 @@ async def get_session(
             detail=f"Session {session_id} not found.",
         )
 
-    from sqlalchemy import select, func
     from app.models import Question, Answer
 
     total_q_result = await db.execute(

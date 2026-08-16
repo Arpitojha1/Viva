@@ -111,7 +111,27 @@ async def get_next_question(
             detail=f"Session {session_id} not found.",
         )
 
+    # Total question count
+    total_result = await db.execute(
+        select(func.count()).where(Question.session_id == session_id)
+    )
+    total_questions = total_result.scalar_one()
+
+    # Total answered count
+    answered_result = await db.execute(
+        select(func.count())
+        .select_from(Answer)
+        .join(Question, Question.id == Answer.question_id)
+        .where(Question.session_id == session_id)
+    )
+    answered_count = answered_result.scalar_one()
+
     if session_row.status == "completed":
+        if total_questions == 0 or answered_count < total_questions:
+            logger.warning(
+                "Inconsistent state: session %d is 'completed' but answered %d/%d questions.",
+                session_id, answered_count, total_questions
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Session is already completed. Retrieve the summary instead.",
@@ -129,18 +149,19 @@ async def get_next_question(
     question = result.scalar_one_or_none()
 
     if question is None:
-        # No more unanswered questions — mark session complete
-        session_row.status = "completed"
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No more questions. Interview complete.",
-        )
-
-    # Total question count for progress display
-    total_result = await db.execute(
-        select(func.count()).where(Question.session_id == session_id)
-    )
-    total_questions = total_result.scalar_one()
+        if total_questions > 0 and answered_count == total_questions:
+            # All generated questions have been answered. Durably mark session complete.
+            session_row.status = "completed"
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No more questions. Interview complete.",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Questions not available yet or generation failed.",
+            )
 
     return await _build_question_response(question, db, total_questions)
 
