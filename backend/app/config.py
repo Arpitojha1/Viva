@@ -6,7 +6,8 @@ Never hardcode secrets — add them to .env (gitignored).
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field, field_validator
+import warnings
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,6 +55,14 @@ class Settings(BaseSettings):
     @classmethod
     def parse_origins(cls, v: str) -> str:
         # Stored as a string; split into list in get_allowed_origins()
+        return v
+
+    @field_validator("allowed_origins", mode="after")
+    @classmethod
+    def check_wildcard_in_production(cls, v: str, info: ValidationInfo) -> str:
+        origins = [o.strip() for o in v.split(",") if o.strip()]
+        if "*" in origins and info.data.get("environment") == "production":
+            warnings.warn("CORS wildcard '*' is allowed in production environment, which is a security risk!")
         return v
 
     def get_allowed_origins(self) -> List[str]:
