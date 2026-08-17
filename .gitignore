@@ -37,6 +37,7 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 *.log
+.worktrees/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
