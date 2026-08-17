@@ -82,14 +82,14 @@ async def _generate_initial_questions(session_id: int, resume_id: int, role: str
                 session_id,
             )
 
-        except Exception as exc:
-            logger.error(
-                "Question generation failed for session %d: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
-            raise
+    except Exception as exc:
+        logger.error(
+            "Question generation failed for session %d: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+        raise
 
 # ---------------------------------------------------------------------------
 # Routes

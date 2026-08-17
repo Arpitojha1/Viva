@@ -43,9 +43,9 @@ logger = logging.getLogger("viva.ingest")
 
 # Mapping: filename stem → book slug
 KNOWN_BOOKS = {
-    "mitchell_machine_learning": "mitchell",
-    "bishop_prml": "bishop",
-    "burkov_100page_ml": "burkov",
+    "MachineLearningTomMitchell": "mitchell",
+    "Bishop-Pattern-Recognition-and-Machine-Learning-2006": "bishop",
+    "2019BurkovTheHundred-pageMachineLearning": "burkov",
 }
 
 
@@ -84,8 +84,7 @@ def discover_book_pdfs(books_dir: str) -> list[Path]:
 
     if not found:
         logger.error(
-            "No PDFs found in %s. Place mitchell_machine_learning.pdf, "
-            "bishop_prml.pdf, and burkov_100page_ml.pdf there before running ingestion.",
+            "No known PDFs found in %s. Check KNOWN_BOOKS mapping.",
             dir_path,
         )
         sys.exit(1)

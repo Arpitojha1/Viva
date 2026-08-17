@@ -7,6 +7,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import get_db
@@ -54,9 +55,43 @@ async def upload_resume(
     filename = file.filename or "resume.pdf"
     logger.info("Resume upload received: %s (%d bytes)", filename, len(content))
 
-    # --- Parse ---
+    # --- Extract text and compute hash BEFORE calling Groq ---
+    from app.services.resume_parser import _extract_text_from_pdf, parse_resume
+    import hashlib
+
     try:
-        resume_data, raw_text = await parse_resume(file_bytes=content, filename=filename)
+        raw_text = _extract_text_from_pdf(content)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Could not extract text: {exc}",
+        )
+
+    content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+    # --- Check cache ---
+    cache_result = await db.execute(
+        select(Resume).where(Resume.content_hash == content_hash).limit(1)
+    )
+    cached_resume = cache_result.scalar_one_or_none()
+
+    if cached_resume is not None:
+        logger.info(
+            "Resume cache HIT: hash=%s, reusing resume id=%d (skip Groq call)",
+            content_hash[:8], cached_resume.id,
+        )
+        from app.schemas import ExtractedResumeData
+        resume_data = ExtractedResumeData(**(cached_resume.extracted_skills or {}))
+        return ResumeUploadResponse(
+            success=True,
+            extractedSkills=resume_data.flat_skills_list(),
+            resumeId=cached_resume.id,
+        )
+
+    # --- Cache MISS: call Groq ---
+    logger.info("Resume cache MISS: hash=%s, calling Groq", content_hash[:8])
+    try:
+        resume_data, _, _ = await parse_resume(file_bytes=content, filename=filename, raw_text=raw_text)
     except Exception as exc:
         logger.error("Resume parsing failed: %s", exc, exc_info=True)
         raise HTTPException(
@@ -68,6 +103,7 @@ async def upload_resume(
     resume_row = Resume(
         filename=filename,
         raw_text=raw_text,
+        content_hash=content_hash,
         extracted_skills=resume_data.model_dump(),
         role="AI/ML Engineer",
         user_id=None,  # no user identity collected in this build
@@ -76,7 +112,7 @@ async def upload_resume(
     await db.flush()  # get the generated ID without committing yet
     await db.refresh(resume_row)
 
-    logger.info("Resume stored: id=%d, skills=%d", resume_row.id, len(resume_data.skills))
+    logger.info("Resume stored: id=%d, hash=%s, skills=%d", resume_row.id, content_hash[:8], len(resume_data.skills))
 
     return ResumeUploadResponse(
         success=True,

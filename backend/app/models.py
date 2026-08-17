@@ -47,6 +47,7 @@ class Resume(Base):
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
     extracted_skills: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     role: Mapped[str] = mapped_column(String(100), nullable=False, default="AI/ML Engineer")
     created_at: Mapped[datetime] = mapped_column(

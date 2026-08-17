@@ -83,6 +83,8 @@ def _clean_page_text(text: str) -> str:
     Remove common PDF extraction artifacts from page text.
     Preserves paragraph structure while removing noise.
     """
+    # Remove null bytes (PostgreSQL cannot store \x00 in text columns)
+    text = text.replace("\x00", "")
     # Remove form-feed characters
     text = text.replace("\f", "\n")
     # Collapse more than 2 consecutive newlines into 2

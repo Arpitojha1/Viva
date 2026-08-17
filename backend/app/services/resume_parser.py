@@ -5,7 +5,9 @@ Extracts text from a PDF and calls Groq to produce structured skill data.
 import io
 import json
 import logging
-from typing import Tuple
+import re
+import hashlib
+from typing import Tuple, Optional
 
 import pdfplumber
 
@@ -22,7 +24,7 @@ Return ONLY a valid JSON object with these exact fields:
 {
   "skills": ["list of ML/AI technical skills, e.g. PyTorch, Scikit-learn, gradient descent"],
   "technologies": ["list of tools, frameworks, cloud platforms, libraries"],
-  "experience_level": "junior" | "mid" | "senior",
+  "experience_level": "junior or mid or senior",
   "domain_exposure": ["list of ML/AI domains, e.g. computer vision, NLP, reinforcement learning, MLOps"]
 }
 
@@ -33,13 +35,14 @@ Guidelines:
 - domain_exposure: High-level ML/AI subfields or application areas.
 - If a field cannot be determined, return an empty list or "mid" for experience_level.
 - Do not include soft skills, hobbies, or non-technical information.
+- Output ONLY the JSON object, no other text.
 
 Resume text:
 {resume_text}"""
 
 
 def _extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract full text from a PDF using pdfplumber (better than pypdf for complex layouts)."""
+    """Extract full text from a PDF using pdfplumber."""
     text_parts = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
@@ -51,52 +54,104 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
 
     full_text = "\n\n".join(text_parts)
     if not full_text.strip():
-        raise ValueError("Could not extract any text from the PDF. It may be scanned or image-based.")
+        raise ValueError(
+            "Could not extract any text from the PDF. It may be scanned or image-based."
+        )
     return full_text
+
+
+def _parse_json_response(response: str) -> dict:
+    """
+    Robustly extract a JSON object from an LLM response.
+
+    Handles three common Groq output formats:
+    1. Bare JSON object: {"skills": [...], ...}
+    2. Markdown code fence: ```json\\n{...}\\n```
+    3. JSON embedded in surrounding prose
+
+    Returns a dict. Raises ValueError if no valid JSON object can be found.
+    """
+    # 1. Strip markdown code fences first
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
+    if fence_match:
+        try:
+            data = json.loads(fence_match.group(1))
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # 2. Try the whole response as JSON
+    try:
+        data = json.loads(response)
+        if isinstance(data, dict):
+            return data
+        logger.warning(
+            "json.loads returned non-dict type %s — response may be malformed",
+            type(data).__name__,
+        )
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Extract the first {...} block (handles prose + JSON combos)
+    brace_match = re.search(r"\{.*\}", response, re.DOTALL)
+    if brace_match:
+        try:
+            data = json.loads(brace_match.group(0))
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(
+        f"Could not extract a JSON object from LLM response "
+        f"(len={len(response)}). First 200 chars: {response[:200]!r}"
+    )
 
 
 async def parse_resume(
     file_bytes: bytes,
     filename: str,
-) -> Tuple[ExtractedResumeData, str]:
+    raw_text: Optional[str] = None,
+) -> Tuple[ExtractedResumeData, str, str]:
     """
     Extract text from a resume PDF and use Groq to extract structured entities.
 
-    Args:
-        file_bytes: Raw PDF bytes.
-        filename: Original filename (for logging).
-
     Returns:
-        Tuple of (ExtractedResumeData, raw_text).
+        Tuple of (ExtractedResumeData, raw_text, content_hash).
 
     Raises:
         ValueError: If text extraction or LLM parsing fails.
     """
-    # Step 1: Extract raw text
-    raw_text = _extract_text_from_pdf(file_bytes)
-    logger.info("Extracted %d characters from %s", len(raw_text), filename)
+    if raw_text is None:
+        raw_text = _extract_text_from_pdf(file_bytes)
+        logger.info("Extracted %d characters from %s", len(raw_text), filename)
 
-    # Step 2: Truncate to avoid token limits (~3000 chars ≈ 750 tokens, well within 70b context)
+    content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+    # Step 2: Truncate to stay within token budget
     truncated_text = raw_text[:6000]
 
-    # Step 3: Groq extraction
-    prompt = _EXTRACTION_PROMPT.format(resume_text=truncated_text)
+    # Step 3: Call Groq
+    # Note: response_format=json_object is intentionally omitted for compatibility —
+    # some Groq endpoints require the system message to contain "JSON" explicitly.
+    # The prompt already says "Return ONLY a valid JSON object".
+    prompt = _EXTRACTION_PROMPT.replace("{resume_text}", truncated_text)
     response = await chat_completion(
         messages=[{"role": "user", "content": prompt}],
         model=settings.groq_model_generation,
-        temperature=0.1,  # Low temp for structured extraction
+        temperature=0.1,
         max_tokens=512,
-        response_format={"type": "json_object"},
     )
 
-    # Step 4: Parse JSON
+    # Step 4: Robust JSON extraction (handles fences, prose, string literals)
     try:
-        data = json.loads(response)
-    except json.JSONDecodeError as exc:
-        logger.error("Groq returned non-JSON for resume extraction: %s", response[:200])
-        raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
+        data = _parse_json_response(response)
+    except ValueError as exc:
+        logger.error("Groq returned unparseable response: %r", response[:300])
+        raise ValueError(str(exc)) from exc
 
-    # Step 5: Validate and normalize
+    # Step 5: Validate via Pydantic
     resume_data = ExtractedResumeData(
         skills=data.get("skills", []),
         technologies=data.get("technologies", []),
@@ -111,4 +166,4 @@ async def parse_resume(
         resume_data.experience_level,
         len(resume_data.domain_exposure),
     )
-    return resume_data, raw_text
+    return resume_data, raw_text, content_hash

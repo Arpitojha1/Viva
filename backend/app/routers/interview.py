@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["interview"])
 
 # Numeric score mapping: weak=35, ok=65, strong=90
-_SCORE_MAP = {"weak": 35, "ok": 65, "strong": 90}
 
 # Difficulty level to integer (for difficultyTrend)
 _DIFFICULTY_INT = {"Fundamentals": 1, "Intermediate": 2, "Advanced": 3}
@@ -224,7 +223,7 @@ async def submit_answer(
         source_chunks=chunk_contents,
     )
 
-    numeric_score = _SCORE_MAP.get(score_result.score, 65)
+    numeric_score = score_result.numeric_score
 
     # --- Store answer ---
     answer_row = Answer(

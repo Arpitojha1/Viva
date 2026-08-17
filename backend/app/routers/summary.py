@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["summary"])
 
-_SCORE_MAP = {"weak": 35, "ok": 65, "strong": 90}
 _DIFFICULTY_INT = {"Fundamentals": 1, "Intermediate": 2, "Advanced": 3}
 
 
@@ -107,7 +106,7 @@ async def get_summary(
                     isAdaptiveFollowup=q.is_adaptive_followup,
                 ),
                 answer=a.answer_text,
-                score=_SCORE_MAP.get(a.quality_score or "ok", 65),
+                score=a.numeric_score if a.numeric_score is not None else 50,
             )
         )
 

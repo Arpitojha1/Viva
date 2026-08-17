@@ -3,6 +3,7 @@ Viva — Groq LLM Client (via OpenAI SDK)
 Wraps the OpenAI async client pointed at Groq's endpoint.
 Includes retry logic with exponential backoff for rate limit errors (429).
 """
+import asyncio
 import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,7 @@ def get_groq_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         api_key=settings.groq_api_key,
         base_url=settings.groq_base_url,
+        timeout=30.0,
     )
 
 
@@ -77,7 +79,19 @@ async def chat_completion(
 
     logger.debug("Groq chat_completion | model=%s | messages=%d", chosen_model, len(messages))
 
-    response = await client.chat.completions.create(**kwargs)
+    try:
+        response = await asyncio.wait_for(
+            client.chat.completions.create(**kwargs),
+            timeout=35.0  # Slightly higher than client timeout
+        )
+    except asyncio.TimeoutError as exc:
+        logger.error("Groq API timed out after 35s")
+        raise APIStatusError(
+            message="Groq API timeout",
+            response=None,
+            body=None
+        ) from exc
+
     content = response.choices[0].message.content
     if content is None:
         raise ValueError("Groq returned an empty response content")
