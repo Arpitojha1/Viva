@@ -1,3 +1,4 @@
+import uuid
 """
 Viva — SQLAlchemy ORM Models
 One class per table. Uses pgvector's Vector type for the embedding column.
@@ -61,6 +62,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    public_token: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
     resume_id: Mapped[int] = mapped_column(ForeignKey("resumes.id"), nullable=False)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     role: Mapped[str] = mapped_column(String(100), nullable=False, default="AI/ML Engineer")

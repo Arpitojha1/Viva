@@ -138,27 +138,24 @@ async def create_session(
     await _generate_initial_questions(session_id, resume.id, body.role, db)
 
     return SessionResponse(
-        id=str(session_id),
+        id=session_row.public_token,
         role=session_row.role,
         status=session_row.status,
     )
 
 
 @router.get(
-    "/session/{session_id}",
+    "/session/{session_token}",
     response_model=SessionDetailResponse,
     summary="Get session status and progress",
 )
 async def get_session(
-    session_id: int,
+    session_token: str,
     db: AsyncSession = Depends(get_db),
 ) -> SessionDetailResponse:
-    session_row = await db.get(Session, session_id)
-    if session_row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session {session_id} not found.",
-        )
+    from app.utils.session_lookup import get_session_by_token
+    session_row = await get_session_by_token(session_token, db)
+    session_id = session_row.id
 
     from app.models import Question, Answer
 
@@ -176,7 +173,7 @@ async def get_session(
     answered_count = answered_result.scalar_one()
 
     return SessionDetailResponse(
-        id=str(session_row.id),
+        id=session_row.public_token,
         role=session_row.role,
         status=session_row.status,
         totalQuestions=total_questions,
