@@ -107,6 +107,22 @@ async def get_summary(
             )
         )
 
+    from app.schemas import PerformanceSeriesItem
+    performance_series = []
+    for q, a in rows:
+        performance_series.append(
+            PerformanceSeriesItem(
+                orderIndex=q.order_index,
+                difficulty=q.difficulty,
+                questionText=q.question_text,
+                answerText=a.answer_text,
+                numericScore=a.numeric_score if a.numeric_score is not None else 50,
+                qualityScore=a.quality_score or "ok",
+                scoreReasoning=a.score_reasoning or "",
+                chunkIds=q.chunk_ids or [],
+            )
+        )
+
     # Difficulty trend: sequence of 1/2/3
     difficulty_trend = [_DIFFICULTY_INT.get(q.difficulty, 2) for q, _ in rows]
 
@@ -124,4 +140,5 @@ async def get_summary(
         scoreDistribution=ScoreDistribution(**score_dist),
         difficultyTrend=difficulty_trend,
         transcript=transcript_items,
+        performanceSeries=performance_series,
     )

@@ -138,6 +138,28 @@ class IngestedBook(Base):
     )
 
 
+class QuestionBank(Base):
+    __tablename__ = "question_bank"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chunk_ids: Mapped[List[int]] = mapped_column(ARRAY(Integer), nullable=False)
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    difficulty: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )
+    times_served: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "difficulty IN ('Fundamentals', 'Intermediate', 'Advanced')",
+            name="question_bank_difficulty_check",
+        ),
+    )
+
+
 class Question(Base):
     __tablename__ = "questions"
 

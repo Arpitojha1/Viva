@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // src/lib/api.ts
 // Production API client — connects to the FastAPI backend.
 // All mock data has been removed. Real HTTP calls to VITE_API_BASE_URL.
@@ -20,6 +21,17 @@ export type Question = {
   };
 };
 
+export type PerformanceSeriesItem = {
+  orderIndex: number;
+  difficulty: 'Fundamentals' | 'Intermediate' | 'Advanced';
+  questionText: string;
+  answerText: string;
+  numericScore: number;
+  qualityScore: string;
+  scoreReasoning: string;
+  chunkIds: number[];
+};
+
 export type Summary = {
   overallAssessment: string;
   strengths: string[];
@@ -31,6 +43,7 @@ export type Summary = {
     answer: string;
     score: number;
   }[];
+  performanceSeries: PerformanceSeriesItem[];
 };
 
 // ---------------------------------------------------------------------------

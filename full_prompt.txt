@@ -1,0 +1,255 @@
+<USER_REQUEST>
+# Viva — Optimization + Security Pass
+
+**Status going in:** MVP works end-to-end (resume upload → session → interview
+loop → summary), verified in-browser against real backend + real Supabase DB.
+Parsing and question generation are both functionally correct. This session
+is NOT about fixing broken functionality — it's optimization, transparency,
+and hardening on top of a working system. Do not restructure things that
+already work unless a task below explicitly calls for it.
+
+**Evidence this session is based on:** a 24h Groq usage log (31 calls,
+22,095 input + 3,806 output tokens) was analyzed before writing these tasks.
+Findings baked into the tasks below:
+- `input_cached_tokens` was `0` on every call — no reuse of any context
+  across calls, at all.
+- Two calls 205ms apart had identical 1304-token input on the 70B model —
+  looks like a literal duplicate call, not two different requests.
+- 22 of 31 calls hit `llama-3.3-70b-versatile` (the expensive model); only 9
+  hit `llama-3.1-8b-instant`. The 70B question-generation path is where the
+  token cost actually lives, not resume parsing or scoring.
+- Manual test scores came back as only three distinct values (35, 65, 90)
+  across 8 answers of clearly varying quality — this is the root cause of
+  scoring "feeling mocked," see Task 3.
+
+---
+
+## Task 1 — Resume parse cache (dedup on re-upload)
+
+**Problem:** re-uploading the same resume re-runs the Groq extraction call
+every time, even though nothing changed.
+
+**Pattern to follow:** mirror the exact-hash dedup already implemented for
+book ingestion (`ingested_books.file_hash`). Do not invent a new pattern.
+
+**Do:**
+- Add `content_hash VARCHAR(64) UNIQUE` to `resumes`, computed from the
+  extracted raw text (post-extraction, not the raw PDF bytes, so formatting-
+  only re-exports of the same resume still dedup correctly).
+- Before calling Groq for structured extraction, hash the extracted text and
+  check for an existing `resumes` row with that hash. If found, reuse its
+  `extracted_skills` and skip the LLM call.
+- Write an Alembic migration for the new column + unique index.
+
+**Explicitly out of scope:** semantic/near-duplicate resume matching (like
+the `SIMILARITY_DEDUP_THRESHOLD` book logic). Exact-hash only for now — two
+resumes that differ by one line should NOT be treated as identical.
+
+---
+
+## Task 2 — Question bank reuse (with a scope guard)
+
+**Problem:** every question is generated fresh, even for concepts that have
+already produced a question for a prior candidate at the same difficulty.
+
+**Constraint to respect:** do not cache adaptive follow-up questions. Those
+are grounded in a specific candidate's answer trajectory and are the actual
+product differentiator — caching them turns the interview into a static test
+bank, which is a worse product, not just a cheaper one.
+
+**Do:**
+- New table `question_bank`: `id, chunk_ids INT[], difficulty, question_text,
+  times_served INT DEFAULT 0, created_at`.
+- Only the **first-attempt, non-adaptive** question generation path (i.e.
+  `is_adaptive_followup = FALSE`) checks this table before calling Groq: look
+  up by `(chunk_ids, difficulty)`, and if `times_served < N` (start with
+  N=3, make it configurable), serve the cached question and increment the
+  counter instead of generating.
+- Adaptive follow-ups (`is_adaptive_followup = TRUE`) always generate fresh,
+  no exceptions.
+- Log which path was taken (cache hit vs. generated) so token savings are
+  measurable afterward, not just assumed.
+
+---
+
+## Task 3 — Scoring pipeline: make `numeric_score` real
+
+**Problem:** `numeric_score` is currently only ever 35, 65, or 90 — it looks
+like a fixed mapping from the `quality_score` enum (`weak/ok/strong`) rather
+than a genuine output of the scoring model. This is why scoring feels
+"mocked" even though the category judgment itself is reasonable.
+
+**Do:**
+- Change the scoring prompt (the 8B-instant call) to require a numeric score
+  0–100 directly from the model, alongside its reasoning — not a category
+  that then gets remapped to a constant.
+- Derive `quality_score` (`weak/ok/strong`) FROM the numeric score via
+  fixed thresholds, for display/filtering purposes — category becomes a
+  label on top of the real number, not the source of truth.
+- Confirm `score_reasoning` is being populated with real per-answer
+  reasoning (it exists in the schema — verify it's actually being written,
+  don't assume).
+- Do NOT change the scoring model (stay on 8B-instant) — this is a prompt/
+  parsing fix, not a model-tier change.
+
+---
+
+## Task 4 — Interactive performance/summary page
+
+**Problem:** the summary page is a static chart. It should let you see how
+the candidate's performance moved question-by-question, and why.
+
+**Do:**
+- Change the summary endpoint to return the full ordered per-question
+  series, not a pre-aggregated result: `[{order_index, difficulty,
+  question_text, numeric_score, quality_score, score_reasoning, chunk_ids}]`
+  for every question in the session.
+- Frontend: render this as an interactive line/step chart (score over
+  question order) where hovering or clicking a point surfaces that
+  question's text, the candidate's answer, the score, and the reasoning.
+  Do the aggregation client-side from the full series — don't pre-collapse
+  it server-side.
+- Keep the existing GSAP/R3F visual language already established in the
+  frontend; this is a data/interactivity change, not a redesign.
+
+---
+
+## Task 5 — Math notation rendering
+
+**Problem:** questions/answers containing LaTeX (e.g. `\(P(w_k\vert{}v_j)\)`)
+are rendering as raw text in the frontend instead of proper notation.
+
+**Do:**
+- Add KaTeX rendering (`react-katex` or `rehype-katex` depending on whether
+  question text is plain string or passed through a markdown renderer
+  already — check current frontend before choosing) and wrap question text,
+  answer text, and score reasoning through it wherever LaTeX delimiters can
+  appear.
+- No backend changes required for this task.
+
+---
+
+## Task 6 — Security hardening before public deploy
+
+This app has no auth in scope (`users.id` nullable, no auth per schema
+comments) and is about to be deployed publicly (Railway + Vercel, per the
+handoff doc). Fix the following before that deploy, not after:
+
+**6a. Session ID exposure (IDOR)** — `sessions.id` is a sequential SERIAL PK
+exposed directly in API routes. Anyone can enumerate session IDs and pull
+another candidate's summary/answers. Generate a UUID/opaque token per
+session for use in URLs and API routes; keep the serial PK internal only.
+
+**6b. Resume text is untrusted LLM input** — resume text goes straight into
+prompts (extraction, and likely question generation context). Treat it
+explicitly as data, not instruction, in the prompt template (e.g. wrap it in
+clear delimiters and instruct the model to treat content within them as
+reference text only, never as instructions to follow). This is a prompt
+hardening task, not a full injection-detection system — don't over-build it.
+
+**6c. Rate limiting** — no rate limiting currently exists on `/api/session`
+or `/api/resume`, meaning the public deploy has an open path to burn the
+Groq quota. Add basic per-IP rate limiting at the FastAPI layer (`slowapi` or
+equivalent) on resume upload and session creation specifically — these are
+the two endpoints that trigger LLM calls.
+
+**6d. CORS** — confirm `ALLOWED_ORIGINS` is set to the actual deployed
+Vercel domain before going live, not a wildcard. This is a config check, not
+a code change — verify `.env` for the deployed environment explicitly.
+
+---
+
+## Task 7 — Investigate duplicate call bug
+
+Two Groq calls fired 205ms apart with byte-identical 1304-token input on the
+70B model during testing. This needs root-causing before assuming Tasks 1–2
+will fix the token burn on their own — if something is double-firing
+requests, caching will just mean you cache-hit twice instead of
+generating twice, which still isn't free.
+
+**Do:**
+- Check for React double-invoke in dev (StrictMode double-effect firing a
+  fetch twice) on whichever frontend action triggers this call.
+- Check for any client-side retry-on-slow-response logic that isn't
+  idempotent (i.e. retries by firing a new request rather than polling the
+  original).
+- Report which one it was (or a different cause) before closing this task —
+  don't just "add debouncing" as a blind fix without confirming the actual
+  trigger.
+
+---
+
+## Priority order
+
+1. Task 6a (session UUIDs) + Task 6c (rate limiting) — cheapest fixes,
+   prevent the worst public-deploy exposure.
+2. Task 1 (resume cache) — small, mirrors an existing pattern, no design
+   decisions needed.
+3. Task 7 (duplicate call root-cause) — do this before trusting any
+   token-savings numbers from Tasks 1–2.
+4. Task 3 (real numeric_score) — fixes the "mocked" scoring perception,
+   moderate scope.
+5. Task 4 (interactive summary) — depends on Task 3 being correct first,
+   otherwise you're building an interactive chart on top of fake numbers.
+6. Task 2 (question bank) — biggest token savings but has a scope guard
+   (Task 2) that needs to be respected, not skipped for convenience.
+7. Task 5 (KaTeX) + Task 6b/6d — small, do whenever convenient, no
+   dependencies on anything else.
+
+## Explicit reject list (do not do these)
+
+- Do not touch the ingestion pipeline (§6 of the handoff doc) — it's correct
+  and out of scope.
+- Do not change either Groq model tier (70B for generation, 8B for scoring)
+  as part of any task above — that's a separate cost/quality tradeoff
+  decision, not bundled into this pass.
+- Do not add full authentication (login/JWT/OAuth) — Task 6a's UUID fix is
+  the scoped mitigation for this pass; full auth is future work.
+- Do not cache or bank adaptive follow-up questions under any circumstance
+  (see Task 2 constraint).
+- Do not redesign the frontend visual language — GSAP/R3F/Tailwind choices
+  stay as-is; Tasks 4/5 are data and rendering fixes only.
+
+## Report back at end of session
+
+For each task: what was done, what file(s) changed, and — for Tasks 1, 2,
+and 7 specifically — the actual before/after token numbers from a fresh
+Groq log, not an estimate.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-08-17T13:59:16+05:30.
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from None to Claude Sonnet 4.6 (Thinking). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>
+
+---
+
+<USER_REQUEST>
+Task 5 (real numeric scoring) is verified working — confirmed manually, real
+scores, not the old 35/65/90 pattern. The gpt-oss token-budget fix held.
+
+Continue the Optimization + Security Pass from here:
+
+- [ ] **Task 6 — Interactive performance chart.** Before touching
+  `SummaryPage.tsx`, re-view its current state on disk rather than working
+  from any pre-merge memory of it — the KaTeX subagent modified this file
+  earlier in the pass. Build per the original task spec: `summary.py`
+  returns the full per-question series (`orderIndex, difficulty,
+  questionText, answerText, numericScore, qualityScore, scoreReasoning,
+  chunkIds`), frontend renders an interactive chart driven off real scores.
+- [ ] **Task 10 — Question bank reuse**, after Task 6 is verified.
+
+Standing rule still applies: nothing gets checked off from live DB/API
+behavior without pasted proof (query output, real response) — not a
+restated claim that the code was written. Use
+`superpowers:verification-before-completion`.
+
+Report back when Task 6 is ready for review before starting Task 10.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-08-17T15:02:00+05:30.
+</ADDITIONAL_METADATA>
+
+---
+

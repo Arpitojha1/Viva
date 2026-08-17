@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { api, Summary } from '../lib/api';
+import { api, Summary, PerformanceSeriesItem } from '../lib/api';
 import { MathText } from '../components/MathText';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot, Scatter } from 'recharts';
 
 export function SummaryPage() {
   const { sessionId } = useParams();
@@ -37,10 +38,7 @@ export function SummaryPage() {
     );
   }
 
-  // Simple Chart calculation
-  const maxDifficulty = 3;
-  const chartHeight = 100;
-  
+
   return (
     <div className="min-h-[100dvh] pt-24 px-6 pb-24 flex justify-center">
       <div className="w-full max-w-4xl space-y-12">
@@ -83,44 +81,63 @@ export function SummaryPage() {
 
           {/* Difficulty Trend Chart */}
           <div className="glass-panel p-6 flex flex-col">
-            <h3 className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mb-6 border-b border-hairline/50 pb-2">Adaptive Difficulty Trend</h3>
-            <div className="flex-1 relative flex items-end justify-between pt-4 pb-2">
-               {/* Y-Axis lines */}
-               <div className="absolute inset-x-0 bottom-2 top-4 flex flex-col justify-between pointer-events-none opacity-20">
-                 <div className="border-t border-hairline w-full" />
-                 <div className="border-t border-hairline w-full" />
-                 <div className="border-t border-hairline w-full" />
-               </div>
-               
-               {/* Trend Line (Simple SVG) */}
-               <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                 <polyline 
-                   points={summary.difficultyTrend.map((val, i) => {
-                     const x = (summary.difficultyTrend.length > 1) 
-                       ? (i / (summary.difficultyTrend.length - 1)) * 100 
-                       : 50;
-                     const y = 100 - ((val - 1) / (maxDifficulty - 1)) * 100;
-                     return `${x},${y}`;
-                   }).join(' ')}
-                   fill="none"
-                   stroke="var(--accent)"
-                   strokeWidth="2"
-                   vectorEffect="non-scaling-stroke"
-                 />
-                 {summary.difficultyTrend.map((val, i) => {
-                     const x = (summary.difficultyTrend.length > 1) 
-                       ? (i / (summary.difficultyTrend.length - 1)) * 100 
-                       : 50;
-                     const y = 100 - ((val - 1) / (maxDifficulty - 1)) * 100;
-                     return (
-                       <circle key={i} cx={x} cy={y} r="2" fill="var(--accent)" vectorEffect="non-scaling-stroke" />
-                     );
-                 })}
-               </svg>
-            </div>
-            <div className="flex justify-between font-mono text-[10px] text-muted-foreground mt-2">
-              <span>START</span>
-              <span>END</span>
+            <h3 className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mb-6 border-b border-hairline/50 pb-2">Adaptive Difficulty & Performance Trend</h3>
+            <div className="flex-1 w-full min-h-[200px] pt-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={summary.performanceSeries} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--hairline)" vertical={false} />
+                  <XAxis 
+                    dataKey="orderIndex" 
+                    tickFormatter={(val) => `Q${val + 1}`}
+                    stroke="var(--muted-foreground)" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    axisLine={false} 
+                  />
+                  <YAxis 
+                    domain={[0, 100]} 
+                    stroke="var(--muted-foreground)" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    axisLine={false} 
+                    tickCount={5}
+                  />
+                  <Tooltip 
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload as PerformanceSeriesItem;
+                        return (
+                          <div className="bg-background/95 backdrop-blur-md p-4 text-xs space-y-3 border border-accent/30 max-w-sm shadow-2xl rounded-sm">
+                            <div className="flex justify-between items-center font-mono border-b border-hairline pb-2">
+                              <span className="text-muted-foreground uppercase tracking-widest text-[10px]">Q{data.orderIndex + 1} ({data.difficulty})</span>
+                              <span className={`font-bold ${data.numericScore >= 90 ? 'text-green-400' : data.numericScore >= 65 ? 'text-accent' : 'text-red-400'}`}>
+                                SCORE: {data.numericScore}
+                              </span>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-mono text-muted-foreground mb-1 uppercase">Question</div>
+                              <div className="line-clamp-2 text-foreground/90 font-sans leading-relaxed"><MathText text={data.questionText} /></div>
+                            </div>
+                            <div className="font-mono text-[10px] text-muted-foreground pt-2 border-t border-hairline/30">
+                              <span className="uppercase text-[9px] mb-1 block">Feedback:</span>
+                              <span className="line-clamp-3">{data.scoreReasoning}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="numericScore" 
+                    stroke="var(--accent)" 
+                    strokeWidth={2}
+                    activeDot={{ r: 6, fill: "var(--accent)", stroke: "var(--background)", strokeWidth: 2 }}
+                    dot={{ r: 4, fill: "var(--background)", stroke: "var(--accent)", strokeWidth: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </div>
 

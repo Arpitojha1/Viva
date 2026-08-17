@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../lib/api';
+import { AuthOffer } from '../components/AuthOffer';
 
 export function UploadPage() {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ export function UploadPage() {
   const [role, setRole] = useState('ml-engineer');
   const [isStarting, setIsStarting] = useState(false);
   const isStartingRef = useRef(false);
+  const isUploadingRef = useRef(false);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -24,6 +26,7 @@ export function UploadPage() {
   }, []);
 
   const handleFile = async (selectedFile: File) => {
+    if (isUploadingRef.current) return;
     if (selectedFile.type !== 'application/pdf') {
       alert('Please upload a PDF file.');
       return;
@@ -33,6 +36,7 @@ export function UploadPage() {
       return;
     }
     
+    isUploadingRef.current = true;
     setFile(selectedFile);
     setIsUploading(true);
     
@@ -47,6 +51,7 @@ export function UploadPage() {
       setFile(null);
     } finally {
       setIsUploading(false);
+      isUploadingRef.current = false;
     }
   };
 
@@ -185,6 +190,8 @@ export function UploadPage() {
              </div>
            )}
         </div>
+
+        {extractedSkills && <AuthOffer />}
 
         {/* Action */}
         <div className="flex justify-end pt-8">

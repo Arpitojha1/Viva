@@ -55,11 +55,40 @@
       linear-gradient(to right, var(--hairline) 1px, transparent 1px),
       linear-gradient(to bottom, var(--hairline) 1px, transparent 1px);
     background-size: 64px 64px;
-    background-position: center top;
+    background-position: 0 0;
   }
 
   .glass-panel {
     @apply bg-glass backdrop-blur-xl border border-glass-border;
+  }
+
+  .interview-note {
+    min-height: 25rem;
+    perspective: 1000px;
+    transition: transform 500ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .interview-note:hover { transform: rotateX(2deg) rotateY(-5deg) translateY(-5px); }
+  .note-sheet, .note-face { position: absolute; display: block; border-radius: 1.5rem; }
+  .note-sheet { inset: 1rem; border: 1px solid var(--glass-border); }
+  .note-sheet--rose { background: color-mix(in srgb, var(--accent) 24%, var(--panel)); transform: rotate(-7deg) translate(-1.4rem, 1.3rem); opacity: .72; }
+  .note-sheet--mauve { background: color-mix(in srgb, var(--foreground) 12%, var(--panel)); transform: rotate(5deg) translate(1.2rem, -.8rem); opacity: .86; }
+  .note-face { inset: 1.15rem; z-index: 2; padding: 2.4rem; background: color-mix(in srgb, var(--background) 84%, var(--accent)); border: 1px solid var(--glass-border); box-shadow: 0 24px 60px color-mix(in srgb, var(--foreground) 12%, transparent); }
+  .note-clip { position: absolute; z-index: 3; top: -.5rem; left: 3.7rem; width: 3rem; height: 7.7rem; border: .42rem solid var(--accent); border-bottom-width: .42rem; border-radius: 2rem; transform: rotate(2deg); }
+  .note-clip::after { content: ''; position: absolute; top: 1.2rem; left: .65rem; width: 1.45rem; height: 5.25rem; border: .34rem solid var(--accent); border-top: 0; border-radius: 0 0 1.3rem 1.3rem; }
+  .note-cursor { color: var(--accent); animation: note-blink .9s steps(1) infinite; }
+  .workflow-card { transition: transform 350ms cubic-bezier(.2,.8,.2,1), box-shadow 350ms ease, border-color 350ms ease; }
+  .workflow-card:hover { transform: translateY(-7px) scale(1.012); border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-border)); box-shadow: 0 18px 38px color-mix(in srgb, var(--foreground) 12%, transparent); }
+  .auth-offer-art { position: relative; overflow: hidden; background: #0b2745; }
+  .auth-offer-art::before, .auth-offer-art::after { content: ''; position: absolute; border-radius: 999px; filter: blur(16px); opacity: .7; }
+  .auth-offer-art::before { width: 18rem; height: 11rem; right: -4rem; bottom: -3rem; background: color-mix(in srgb, var(--accent) 45%, #d9e0ef); }
+  .auth-offer-art::after { width: 12rem; height: 8rem; left: -3rem; bottom: 1rem; background: #b9c5d8; opacity: .48; }
+
+  @keyframes note-blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .interview-note, .workflow-card { transition: none; }
+    .interview-note:hover, .workflow-card:hover { transform: none; }
+    .note-cursor { animation: none; }
   }
 }
 

@@ -137,6 +137,15 @@ class TranscriptItem(BaseModel):
     answer: str
     score: int  # numeric 0-100
 
+class PerformanceSeriesItem(BaseModel):
+    orderIndex: int
+    difficulty: str
+    questionText: str
+    answerText: str
+    numericScore: int
+    qualityScore: str
+    scoreReasoning: str
+    chunkIds: List[int]
 
 class SummaryResponse(BaseModel):
     """Response from GET /api/session/{session_id}/summary.
@@ -149,6 +158,7 @@ class SummaryResponse(BaseModel):
     scoreDistribution: ScoreDistribution
     difficultyTrend: List[int]  # sequence of 1/2/3 (Fundamentals/Intermediate/Advanced)
     transcript: List[TranscriptItem]
+    performanceSeries: List[PerformanceSeriesItem]
 
 
 # ============================================================

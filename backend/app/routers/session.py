@@ -10,12 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from app.config import get_settings
 from app.database import get_db
 from app.models import Resume, Session
 from app.schemas import SessionCreateRequest, SessionDetailResponse, SessionResponse
 from app.main import limiter
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 router = APIRouter(tags=["session"])
 
@@ -62,6 +64,7 @@ async def _generate_initial_questions(session_id: int, resume_id: int, role: str
                 chunks=chunks,
                 resume_data=resume_data,
                 role=role,
+                db=db,
                 count=settings.initial_question_count,
             )
 

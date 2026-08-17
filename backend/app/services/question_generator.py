@@ -8,10 +8,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.models import QuestionBank
+
 from app.config import get_settings
 from app.schemas import ExtractedResumeData
 from app.services.retrieval import ChunkResult
-from app.utils.llm_client import chat_completion
+from app.utils.llm_client import chat_completion_json
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -59,89 +63,133 @@ async def generate_questions(
     chunks: List[ChunkResult],
     resume_data: ExtractedResumeData,
     role: str,
+    db: AsyncSession,
     count: int = 5,
 ) -> List[GeneratedQuestion]:
     """
     Generate `count` interview questions grounded in the provided chunks.
-
-    Returns a list of GeneratedQuestion. Falls back to a minimal default set
-    if Groq call fails.
+    Reuses questions from the `question_bank` when possible.
     """
     if not chunks:
         logger.warning("No chunks provided for question generation — using fallback")
         return _fallback_questions(count)
 
-    difficulty_focus = {
-        "junior": "foundational concepts and basic applied skills",
-        "mid": "intermediate concepts, trade-offs, and practical application",
-        "senior": "advanced theory, system design, and nuanced trade-offs",
-    }.get(resume_data.experience_level, "intermediate concepts and application")
+    # 1. Determine target difficulty mix
+    target_difficulties = ["Intermediate"] * count
+    if count >= 3:
+        target_difficulties[0] = "Fundamentals"
+        target_difficulties[-1] = "Advanced"
 
-    # Format chunk excerpts (truncate each to ~400 chars for token budget)
-    chunk_texts = []
-    for i, chunk in enumerate(chunks[:8], start=1):
-        source = f"[{chunk.book.upper()} | {chunk.chapter or 'Unknown Chapter'} | p.{chunk.page}]"
-        excerpt = chunk.content[:400].replace("\n", " ").strip()
-        chunk_texts.append(f"Excerpt {i} {source}:\n{excerpt}")
+    chunk_ids = [c.chunk_id for c in chunks]
+    banked_questions = []
+    remaining_difficulties = []
 
-    chunks_formatted = "\n\n".join(chunk_texts)
+    # 2. Try to fetch from question_bank
+    for diff in target_difficulties:
+        result = await db.execute(
+            select(QuestionBank)
+            .where(QuestionBank.difficulty == diff)
+            .where(QuestionBank.chunk_ids.op("&&")(chunk_ids))
+            .where(QuestionBank.times_served < 3)
+            .where(QuestionBank.id.notin_([bq.id for bq in banked_questions]) if banked_questions else True)
+            .order_by(QuestionBank.times_served.asc())
+            .limit(1)
+        )
+        bq = result.scalar_one_or_none()
+        if bq:
+            bq.times_served += 1
+            banked_questions.append(bq)
+        else:
+            remaining_difficulties.append(diff)
 
-    prompt = _GENERATION_PROMPT.format(
-        count=count,
-        role=role,
-        skills=", ".join(resume_data.skills[:8]) or "machine learning",
-        technologies=", ".join(resume_data.technologies[:8]) or "Python",
-        experience_level=resume_data.experience_level,
-        domains=", ".join(resume_data.domain_exposure[:6]) or "ML/AI",
-        chunks=chunks_formatted,
-        difficulty_focus=difficulty_focus,
-    )
+    if banked_questions:
+        await db.flush()
 
-    try:
-        response = await chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            model=settings.groq_model_generation,
-            temperature=0.75,
-            max_tokens=1500,
-            response_format={"type": "json_object"},
+    new_questions = []
+    # 3. Generate missing questions via LLM
+    if remaining_difficulties:
+        difficulty_focus = f"a mix containing EXACTLY these difficulties: {', '.join(remaining_difficulties)}"
+
+        # Format chunk excerpts
+        chunk_texts = []
+        for i, chunk in enumerate(chunks[:8], start=1):
+            source = f"[{chunk.book.upper()} | {chunk.chapter or 'Unknown Chapter'} | p.{chunk.page}]"
+            excerpt = chunk.content[:400].replace("\n", " ").strip()
+            chunk_texts.append(f"Excerpt {i} {source}:\n{excerpt}")
+
+        chunks_formatted = "\n\n".join(chunk_texts)
+
+        prompt = _GENERATION_PROMPT.format(
+            count=len(remaining_difficulties),
+            role=role,
+            skills=", ".join(resume_data.skills[:8]) or "machine learning",
+            technologies=", ".join(resume_data.technologies[:8]) or "Python",
+            experience_level=resume_data.experience_level,
+            domains=", ".join(resume_data.domain_exposure[:6]) or "ML/AI",
+            chunks=chunks_formatted,
+            difficulty_focus=difficulty_focus,
         )
 
-        parsed = json.loads(response)
-        # Handle both {"questions": [...]} and [...]
-        if isinstance(parsed, list):
-            q_list = parsed
-        elif isinstance(parsed, dict):
-            q_list = next((v for v in parsed.values() if isinstance(v, list)), [])
-        else:
-            q_list = []
-
-        questions = []
-        # Use chunks' IDs in round-robin per question for traceability
-        chunk_ids = [c.chunk_id for c in chunks]
-
-        for idx, item in enumerate(q_list[:count]):
-            if not isinstance(item, dict) or "question" not in item:
-                continue
-            # Assign 2 chunk IDs per question (the two most relevant for that position)
-            assigned_chunk_ids = chunk_ids[idx : idx + 2] or chunk_ids[:2]
-
-            questions.append(
-                GeneratedQuestion(
-                    question_text=item["question"].strip(),
-                    chunk_ids=assigned_chunk_ids,
-                    difficulty=item.get("difficulty", "Intermediate"),
-                    order_index=idx,
-                )
+        try:
+            parsed = await chat_completion_json(
+                messages=[{"role": "user", "content": prompt}],
+                model=settings.groq_model_generation,
+                temperature=0.75,
+                max_tokens=2500,
             )
 
-        if questions:
-            logger.info("Generated %d questions (requested %d)", len(questions), count)
-            return questions
+            if isinstance(parsed, list):
+                q_list = parsed
+            elif isinstance(parsed, dict):
+                q_list = next((v for v in parsed.values() if isinstance(v, list)), [])
+            else:
+                q_list = []
 
-    except Exception as exc:
-        logger.error("Question generation failed: %s", exc, exc_info=True)
+            for idx, item in enumerate(q_list[:len(remaining_difficulties)]):
+                if not isinstance(item, dict) or "question" not in item:
+                    continue
+                assigned_chunk_ids = chunk_ids[idx : idx + 2] or chunk_ids[:2]
+                q_text = item["question"].strip()
+                diff = item.get("difficulty", "Intermediate")
 
-    return _fallback_questions(count)
+                qb = QuestionBank(
+                    chunk_ids=assigned_chunk_ids,
+                    question_text=q_text,
+                    difficulty=diff,
+                    times_served=1,
+                )
+                db.add(qb)
+                new_questions.append(qb)
+
+            if new_questions:
+                await db.flush()
+                logger.info("Generated %d new questions from LLM", len(new_questions))
+
+        except Exception as exc:
+            logger.error("Question generation failed: %s", exc, exc_info=True)
+
+    # 4. Combine and format output
+    final_qbs = banked_questions + new_questions
+    questions = []
+
+    for idx, qb in enumerate(final_qbs):
+        questions.append(
+            GeneratedQuestion(
+                question_text=qb.question_text,
+                chunk_ids=qb.chunk_ids,
+                difficulty=qb.difficulty,
+                order_index=idx,
+            )
+        )
+
+    if not questions:
+        return _fallback_questions(count)
+
+    if len(questions) < count:
+        fallbacks = _fallback_questions(count)
+        questions.extend(fallbacks[len(questions):])
+
+    return questions
 
 
 async def generate_adaptive_followup(
@@ -199,14 +247,12 @@ Return ONLY a JSON object:
 {{"question": "...", "difficulty": "{'Advanced' if score == 'strong' else 'Fundamentals'}"}}"""
 
     try:
-        response = await chat_completion(
+        parsed = await chat_completion_json(
             messages=[{"role": "user", "content": prompt}],
             model=settings.groq_model_generation,
             temperature=0.7,
-            max_tokens=300,
-            response_format={"type": "json_object"},
+            max_tokens=1000,
         )
-        parsed = json.loads(response)
         if isinstance(parsed, dict) and "question" in parsed:
             chunk_ids = [c.chunk_id for c in chunks[:2]]
             return GeneratedQuestion(

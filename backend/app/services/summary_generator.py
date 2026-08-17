@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from app.config import get_settings
-from app.utils.llm_client import chat_completion
+from app.utils.llm_client import chat_completion_json
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -85,15 +85,13 @@ async def generate_summary(
     transcript = "\n\n---\n\n".join(transcript_lines)
 
     try:
-        response = await chat_completion(
+        parsed = await chat_completion_json(
             messages=[{"role": "user", "content": _SUMMARY_PROMPT.format(transcript=transcript)}],
             model=settings.groq_model_generation,
             temperature=0.5,
-            max_tokens=600,
-            response_format={"type": "json_object"},
+            max_tokens=2000,
         )
 
-        parsed = json.loads(response)
         return SessionSummary(
             overall_assessment=parsed.get(
                 "overallAssessment",

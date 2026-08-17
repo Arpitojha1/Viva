@@ -12,7 +12,7 @@ from typing import Tuple, Optional
 import pdfplumber
 
 from app.schemas import ExtractedResumeData
-from app.utils.llm_client import chat_completion
+from app.utils.llm_client import chat_completion_json
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -63,55 +63,6 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
     return full_text
 
 
-def _parse_json_response(response: str) -> dict:
-    """
-    Robustly extract a JSON object from an LLM response.
-
-    Handles three common Groq output formats:
-    1. Bare JSON object: {"skills": [...], ...}
-    2. Markdown code fence: ```json\\n{...}\\n```
-    3. JSON embedded in surrounding prose
-
-    Returns a dict. Raises ValueError if no valid JSON object can be found.
-    """
-    # 1. Strip markdown code fences first
-    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
-    if fence_match:
-        try:
-            data = json.loads(fence_match.group(1))
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-
-    # 2. Try the whole response as JSON
-    try:
-        data = json.loads(response)
-        if isinstance(data, dict):
-            return data
-        logger.warning(
-            "json.loads returned non-dict type %s — response may be malformed",
-            type(data).__name__,
-        )
-    except json.JSONDecodeError:
-        pass
-
-    # 3. Extract the first {...} block (handles prose + JSON combos)
-    brace_match = re.search(r"\{.*\}", response, re.DOTALL)
-    if brace_match:
-        try:
-            data = json.loads(brace_match.group(0))
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError(
-        f"Could not extract a JSON object from LLM response "
-        f"(len={len(response)}). First 200 chars: {response[:200]!r}"
-    )
-
-
 async def parse_resume(
     file_bytes: bytes,
     filename: str,
@@ -136,22 +87,18 @@ async def parse_resume(
     truncated_text = raw_text[:6000]
 
     # Step 3: Call Groq
-    # Note: response_format=json_object is intentionally omitted for compatibility —
-    # some Groq endpoints require the system message to contain "JSON" explicitly.
-    # The prompt already says "Return ONLY a valid JSON object".
-    prompt = _EXTRACTION_PROMPT.replace("{resume_text}", truncated_text)
-    response = await chat_completion(
-        messages=[{"role": "user", "content": prompt}],
-        model=settings.groq_model_generation,
-        temperature=0.1,
-        max_tokens=512,
-    )
-
-    # Step 4: Robust JSON extraction (handles fences, prose, string literals)
+    prompt = _EXTRACTION_PROMPT.format(resume_text=truncated_text)
+    
+    # Step 4: Call LLM with robust JSON extraction
     try:
-        data = _parse_json_response(response)
+        data = await chat_completion_json(
+            messages=[{"role": "user", "content": prompt}],
+            model=settings.groq_model_generation,
+            temperature=0.1,
+            max_tokens=2000,
+        )
     except ValueError as exc:
-        logger.error("Groq returned unparseable response: %r", response[:300])
+        logger.error("Groq returned unparseable response")
         raise ValueError(str(exc)) from exc
 
     # Step 5: Validate via Pydantic

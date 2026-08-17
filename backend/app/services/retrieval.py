@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.schemas import ExtractedResumeData
 from app.utils.embeddings import embed_query
-from app.utils.llm_client import chat_completion
+from app.utils.llm_client import chat_completion_json
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -65,15 +65,14 @@ async def build_retrieval_queries(
     )
 
     try:
-        response = await chat_completion(
+        parsed = await chat_completion_json(
             messages=[{"role": "user", "content": prompt}],
             model=settings.groq_model_generation,
             temperature=0.4,
-            max_tokens=200,
-            response_format={"type": "json_object"},
+            max_tokens=800,
         )
-        # Groq may wrap the array in an object — handle both cases
-        parsed = json.loads(response)
+
+        # Handle both {"queries": [...]} and [...]
         if isinstance(parsed, list):
             queries = parsed
         elif isinstance(parsed, dict):

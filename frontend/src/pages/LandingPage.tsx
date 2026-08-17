@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { HeroScene } from '../components/HeroScene';
+import { InterviewNote } from '../components/InterviewNote';
 import StrokeText from '../components/StrokeText';
-import WarpText from '../components/WarpText';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -19,6 +18,7 @@ const STAGES = [
 export function LandingPage() {
   const navigate = useNavigate();
   const stagesRef = useRef<HTMLDivElement>(null);
+  const cardsRef = useRef<HTMLDivElement>(null);
   const [activeStage, setActiveStage] = useState(0);
 
   useEffect(() => {
@@ -46,18 +46,31 @@ export function LandingPage() {
     return () => ctx.revert();
   }, []);
 
+  useEffect(() => {
+    if (!cardsRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ctx = gsap.context(() => {
+      gsap.from('[data-workflow-card]', {
+        y: 28,
+        opacity: 0,
+        duration: 0.7,
+        stagger: 0.12,
+        ease: 'power3.out',
+        scrollTrigger: { trigger: cardsRef.current, start: 'top 82%' }
+      });
+    }, cardsRef);
+    return () => ctx.revert();
+  }, []);
+
   return (
     <div className="relative w-full">
       {/* Hero Section */}
-      <section className="relative h-[100dvh] flex items-center px-6 lg:px-24">
-        <HeroScene />
-
-        
-        <div className="relative z-10 max-w-3xl">
-          <h1 className="text-5xl md:text-7xl font-display tracking-tight leading-[1.1] mb-6">
-            Interview questions grounded in real ML textbooks, adapted to you.
+      <section className="relative min-h-[calc(100dvh-3.5rem)] overflow-hidden px-6 py-16 lg:px-24 lg:py-20">
+        <div className="relative z-10 mx-auto grid min-h-[calc(100dvh-13.5rem)] max-w-7xl items-center gap-14 lg:grid-cols-[minmax(0,0.95fr)_minmax(25rem,0.85fr)] lg:gap-20">
+          <div className="max-w-xl">
+          <h1 className="text-5xl font-display tracking-tight leading-[1.08] md:text-6xl lg:text-7xl mb-6">
+            Grounded ML questions. Adapted to you.
           </h1>
-          <p className="text-lg text-muted-foreground mb-10 max-w-xl">
+          <p className="text-lg text-muted-foreground mb-10 max-w-lg">
             A specialized RAG screening system that retrieves authoritative machine learning literature and tailors adaptive scenarios to your experience.
           </p>
           <button 
@@ -66,6 +79,8 @@ export function LandingPage() {
           >
             Start Interview
           </button>
+          </div>
+          <InterviewNote onBegin={() => navigate('/upload')} />
         </div>
       </section>
 
@@ -102,23 +117,23 @@ export function LandingPage() {
       </section>
       
       {/* Footer / Summary Cards */}
-      <section className="py-32 px-6 lg:px-24 border-t border-hairline bg-panel relative z-10">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="glass-panel p-8 flex flex-col items-start hover:-translate-y-1 transition-transform duration-300">
+      <section ref={cardsRef} className="px-6 py-20 lg:px-24 lg:py-28 border-t border-hairline bg-panel relative z-10">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-5 grid-flow-dense">
+          <div data-workflow-card className="workflow-card glass-panel p-8 flex flex-col items-start">
              <div className="w-10 h-10 border border-hairline rounded-full flex items-center justify-center mb-6">
                 <span className="font-mono text-xs text-muted-foreground">01</span>
              </div>
              <h3 className="text-xl font-display tracking-tight mb-2">Upload Resume</h3>
              <p className="text-sm text-muted-foreground">System extracts key skills and maps them to our ML knowledge graph.</p>
           </div>
-          <div className="glass-panel p-8 flex flex-col items-start hover:-translate-y-1 transition-transform duration-300">
+          <div data-workflow-card className="workflow-card glass-panel p-8 flex flex-col items-start">
              <div className="w-10 h-10 border border-hairline rounded-full flex items-center justify-center mb-6">
                 <span className="font-mono text-xs text-muted-foreground">02</span>
              </div>
              <h3 className="text-xl font-display tracking-tight mb-2">Adaptive Q&A</h3>
              <p className="text-sm text-muted-foreground">Answer questions with live scoring that adjusts subsequent difficulty.</p>
           </div>
-          <div className="glass-panel p-8 flex flex-col items-start hover:-translate-y-1 transition-transform duration-300">
+          <div data-workflow-card className="workflow-card glass-panel p-8 flex flex-col items-start">
              <div className="w-10 h-10 border border-hairline rounded-full flex items-center justify-center mb-6">
                 <span className="font-mono text-xs text-muted-foreground">03</span>
              </div>
@@ -128,22 +143,8 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* VIVA Warp Text Footer */}
-      <section className="bg-foreground text-background py-16 overflow-hidden flex items-center justify-center relative z-10 border-t border-hairline">
-        <WarpText
-          text="VIVA"
-          color="#f8fafc"
-          warpStrength={0.08}
-          warpScale={1.7}
-          speed={0.55}
-          pointerInfluence={0.42}
-          pointerStrength={0.38}
-          refraction={0.018}
-          ripple
-          fontSize="clamp(5rem, 15vw, 15rem)"
-          fontWeight={800}
-          style={{ height: '320px', width: '100%' }}
-        />
+      <section className="bg-panel py-12 overflow-hidden flex items-center justify-center relative z-10 border-t border-hairline">
+        <span className="font-display text-6xl font-semibold tracking-[-0.08em] text-foreground md:text-8xl">VIVA</span>
       </section>
     </div>
   );
