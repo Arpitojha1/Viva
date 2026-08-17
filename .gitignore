@@ -43,3 +43,8 @@ Thumbs.db
 .ruff_cache/
 htmlcov/
 .coverage
+
+# IDEs and Tools
+.vscode/
+.idea/
+frontend/.vercel/
