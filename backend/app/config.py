@@ -61,6 +61,8 @@ class Settings(BaseSettings):
 
     # --- Resume upload ---
     max_resume_size_mb: int = 5
+    rate_limit_resume: str = "5/minute"
+    rate_limit_session: str = "10/minute"
 
     @property
     def max_resume_size_bytes(self) -> int:

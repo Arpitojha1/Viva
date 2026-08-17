@@ -6,13 +6,14 @@ GET  /api/session/{session_id} — get session status.
 """
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models import Resume, Session
 from app.schemas import SessionCreateRequest, SessionDetailResponse, SessionResponse
+from app.main import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,9 @@ async def _generate_initial_questions(session_id: int, resume_id: int, role: str
     status_code=status.HTTP_201_CREATED,
     summary="Create an interview session and pre-generate initial questions",
 )
+@limiter.limit(settings.rate_limit_session)
 async def create_session(
+    request: Request,
     body: SessionCreateRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SessionResponse:
