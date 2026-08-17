@@ -20,12 +20,12 @@ _DIFFICULTY_INT = {"Fundamentals": 1, "Intermediate": 2, "Advanced": 3}
 
 
 @router.get(
-    "/session/{session_id}/summary",
+    "/session/{session_token}/summary",
     response_model=SummaryResponse,
     summary="Generate a structured session summary from stored Q&A records",
 )
 async def get_summary(
-    session_id: int,
+    session_token: str,
     db: AsyncSession = Depends(get_db),
 ) -> SummaryResponse:
     """
@@ -34,12 +34,9 @@ async def get_summary(
 
     Requires the session to have at least one answered question.
     """
-    session_row = await db.get(Session, session_id)
-    if session_row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session {session_id} not found.",
-        )
+    from app.utils.session_lookup import get_session_by_token
+    session_row = await get_session_by_token(session_token, db)
+    session_id = session_row.id
 
     # Fetch all answered questions with their answers
     result = await db.execute(

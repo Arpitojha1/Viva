@@ -88,12 +88,12 @@ async def _build_question_response(
 
 
 @router.get(
-    "/interview/{session_id}/next-question",
+    "/interview/{session_token}/next-question",
     response_model=QuestionResponse,
     summary="Get the next unanswered question in the interview",
 )
 async def get_next_question(
-    session_id: int,
+    session_token: str,
     db: AsyncSession = Depends(get_db),
 ) -> QuestionResponse:
     """
@@ -103,12 +103,9 @@ async def get_next_question(
 
     Returns 204 (via 404 with detail) when all questions are answered.
     """
-    session_row = await db.get(Session, session_id)
-    if session_row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session {session_id} not found.",
-        )
+    from app.utils.session_lookup import get_session_by_token
+    session_row = await get_session_by_token(session_token, db)
+    session_id = session_row.id
 
     # Total question count
     total_result = await db.execute(
@@ -166,12 +163,12 @@ async def get_next_question(
 
 
 @router.post(
-    "/interview/{session_id}/answer",
+    "/interview/{session_token}/answer",
     response_model=AnswerSubmitResponse,
     summary="Submit an answer, get it scored, adapt difficulty",
 )
 async def submit_answer(
-    session_id: int,
+    session_token: str,
     body: AnswerSubmitRequest,
     db: AsyncSession = Depends(get_db),
 ) -> AnswerSubmitResponse:
@@ -183,6 +180,10 @@ async def submit_answer(
     4. If score is 'strong' or 'weak', generates one follow-up question.
     5. Returns numeric score and next difficulty level.
     """
+    from app.utils.session_lookup import get_session_by_token
+    session_row = await get_session_by_token(session_token, db)
+    session_id = session_row.id
+
     if not body.answer.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -194,14 +195,7 @@ async def submit_answer(
     if question is None or question.session_id != session_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Question {body.questionId} not found in session {session_id}.",
-        )
-
-    session_row = await db.get(Session, session_id)
-    if session_row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session {session_id} not found.",
+            detail=f"Question {body.questionId} not found in session {session_token}.",
         )
 
     # --- Score the answer ---

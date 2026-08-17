@@ -5,7 +5,7 @@ POST /api/resume/upload — accept PDF, extract text, call Groq for structured d
 import io
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models import Resume
 from app.schemas import ResumeUploadResponse
 from app.services.resume_parser import parse_resume
+from app.main import limiter
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -27,7 +28,9 @@ router = APIRouter(tags=["resume"])
     status_code=status.HTTP_201_CREATED,
     summary="Upload and parse a candidate's resume PDF",
 )
+@limiter.limit(settings.rate_limit_resume)
 async def upload_resume(
+    request: Request,
     file: UploadFile = File(..., description="PDF resume, max 5MB"),
     db: AsyncSession = Depends(get_db),
 ) -> ResumeUploadResponse:
