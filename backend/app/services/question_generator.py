@@ -84,18 +84,32 @@ async def generate_questions(
     banked_questions = []
     remaining_difficulties = []
 
+    import random
+    session_chunk_set = set(chunk_ids)
+    MIN_OVERLAP_RATIO = 0.5
+
     # 2. Try to fetch from question_bank
     for diff in target_difficulties:
-        result = await db.execute(
+        if len(banked_questions) >= settings.question_bank_max_per_batch:
+            remaining_difficulties.append(diff)
+            continue
+
+        candidates_raw = await db.execute(
             select(QuestionBank)
             .where(QuestionBank.difficulty == diff)
             .where(QuestionBank.chunk_ids.op("&&")(chunk_ids))
             .where(QuestionBank.times_served < 3)
             .where(QuestionBank.id.notin_([bq.id for bq in banked_questions]) if banked_questions else True)
-            .order_by(QuestionBank.times_served.asc())
-            .limit(1)
         )
-        bq = result.scalar_one_or_none()
+        candidates = candidates_raw.scalars().all()
+
+        eligible = [
+            c for c in candidates
+            if len(session_chunk_set.intersection(set(c.chunk_ids))) / max(1, len(c.chunk_ids)) >= MIN_OVERLAP_RATIO
+        ]
+
+        bq = random.choice(eligible) if eligible else None
+
         if bq:
             bq.times_served += 1
             banked_questions.append(bq)
@@ -172,7 +186,23 @@ async def generate_questions(
     final_qbs = banked_questions + new_questions
     questions = []
 
+    # LOGGING FOR DIAGNOSTICS
+    import uuid
+    run_id = str(uuid.uuid4())[:8]
+    logger.info(f"=== GENERATION LOG (Run: {run_id}, Role: {role}) ===")
+    logger.info(f"Total banked: {len(banked_questions)}, Total new: {len(new_questions)}")
+
+    # track which ones are banked vs new
+    banked_ids = {qb.id for qb in banked_questions if hasattr(qb, 'id') and qb.id is not None}
+
     for idx, qb in enumerate(final_qbs):
+        is_bank = (hasattr(qb, 'id') and qb.id in banked_ids) or qb in banked_questions
+        source = "HIT" if is_bank else "FRESH"
+        served = qb.times_served if is_bank else 1
+        
+        logger.info(f"Q{idx+1} [{source}] diff={qb.difficulty} served={served} chunks={qb.chunk_ids}")
+        logger.info(f"Text: {qb.question_text[:150]}...")
+
         questions.append(
             GeneratedQuestion(
                 question_text=qb.question_text,
@@ -181,6 +211,8 @@ async def generate_questions(
                 order_index=idx,
             )
         )
+
+    logger.info("==============================================")
 
     if not questions:
         return _fallback_questions(count)

@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     difficulty_adjust_step: float = 0.15
     initial_question_count: int = 5
     max_adaptive_followups: int = 3
+    question_bank_max_per_batch: int = 2
 
     # --- CORS ---
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
