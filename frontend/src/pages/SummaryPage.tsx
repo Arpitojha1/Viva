@@ -20,6 +20,18 @@ export function SummaryPage() {
       try {
         const data = await api.getSummary(sessionId);
         setSummary(data);
+        
+        // Track the completed session token
+        try {
+          const stored = localStorage.getItem('viva_sessions');
+          const sessions = stored ? JSON.parse(stored) : [];
+          if (!sessions.includes(sessionId)) {
+            sessions.push(sessionId);
+            localStorage.setItem('viva_sessions', JSON.stringify(sessions));
+          }
+        } catch (e) {
+          console.error('Failed to save session to localStorage', e);
+        }
       } catch (err) {
         console.error(err);
       } finally {

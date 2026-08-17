@@ -39,6 +39,11 @@ export function HUD() {
       </div>
 
       <div className="flex items-center space-x-6 font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground">
+        
+        <button onClick={() => location.pathname !== '/dashboard' && window.location.assign('/dashboard')} className="hover:text-foreground transition-colors cursor-pointer focus:outline-none">
+          YOUR SESSION HISTORY
+        </button>
+
         {sessionId ? (
           <div className="flex items-center space-x-2">
             <span className="flex items-center space-x-1">

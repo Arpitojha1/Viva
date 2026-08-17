@@ -9,6 +9,7 @@ import { LandingPage } from './pages/LandingPage';
 import { UploadPage } from './pages/UploadPage';
 import { InterviewPage } from './pages/InterviewPage';
 import { SummaryPage } from './pages/SummaryPage';
+import { DashboardPage } from './pages/DashboardPage';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/interview/:sessionId" element={<InterviewPage />} />
           <Route path="/summary/:sessionId" element={<SummaryPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
         </Routes>
       </main>
     </Router>
