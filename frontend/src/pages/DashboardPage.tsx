@@ -25,9 +25,15 @@ export function DashboardPage() {
           return;
         }
 
-        const results = await Promise.allSettled(
-          sessionIds.map(id => api.getSummary(id))
-        );
+        const results = [];
+        // Fetch in chunks of 3 to avoid overwhelming the browser/backend
+        for (let i = 0; i < sessionIds.length; i += 3) {
+          const chunk = sessionIds.slice(i, i + 3);
+          const chunkResults = await Promise.allSettled(
+            chunk.map(id => api.getSummary(id))
+          );
+          results.push(...chunkResults);
+        }
 
         const loadedSessions = sessionIds.map((id, index) => {
           const result = results[index];
