@@ -17,6 +17,7 @@ env/
 .env
 .env.local
 .env.*.local
+.env copy
 
 # PDF binaries — too large and may be proprietary
 backend/data/books/*.pdf
