@@ -22,15 +22,26 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: pre-load the embedding model (avoids cold-start latency on first request)."""
-    logger.info("Viva backend starting up — pre-loading embedding model...")
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-    loop = asyncio.get_event_loop()
-    # Load model in a thread pool so we don't block the event loop
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        await loop.run_in_executor(pool, _preload_embeddings)
-    logger.info("Embedding model ready. Viva is live.")
+    """
+    Optionally pre-load the embedding model.
+
+    On long-running local/Railway servers this removes first-request latency.
+    On Vercel, set PRELOAD_EMBEDDING_MODEL=false to reduce cold-start work.
+    """
+    if settings.preload_embedding_model:
+        logger.info("Pre-loading embedding model...")
+
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _preload_embeddings)
+
+        logger.info("Embedding model ready.")
+    else:
+        logger.info(
+            "Embedding model preload disabled; model will load on first use."
+        )
+
     yield
     logger.info("Viva backend shutting down.")
 

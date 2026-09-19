@@ -29,7 +29,7 @@ Viva is designed to be highly modular, separating the offline knowledge ingestio
                                 |
 +------------------+   +--------+----------+   +-------------------+
 |                  |   |                   |   |                   |
-|   Next.js        |<->|   FastAPI         |<->|   Groq API        |
+|   React + Vite   |<->|   FastAPI         |<->|   Groq API        |
 |   Frontend       |   |   Backend         |   |   (Llama 3)       |
 |                  |   |                   |   |                   |
 +------------------+   +-------------------+   +-------------------+
@@ -73,12 +73,28 @@ The database relies on a relational structure combined with vector storage.
 
 ## API Surface
 
-- `POST /api/interviews/` - Initializes a new interview session from an uploaded resume.
-- `GET /api/interviews/{interview_id}` - Retrieves the current state and history of an interview.
-- `POST /api/interviews/{interview_id}/questions/` - Synchronously generates the initial question based on the resume and database context.
-- `POST /api/interviews/{interview_id}/answers/` - Submits a candidate's answer, returning evaluation feedback.
-- `POST /api/interviews/{interview_id}/next-question/` - Asynchronously triggers the generation of adaptive follow-up questions based on prior performance.
-- `POST /api/interviews/{interview_id}/summary/` - Ends the interview and generates the final evaluation summary.
+All routes are served over ordinary HTTP (no Socket.IO or WebSockets). The health endpoint is at `/health`; all application routes are prefixed with `/api`.
+
+- `POST /api/resume/upload` — Upload a PDF resume (max 5 MB, in-memory only); returns extracted skills and a `resumeId`.
+- `POST /api/session` — Create an interview session for a previously uploaded resume; generates initial questions synchronously before returning.
+- `GET  /api/session/{session_token}` — Get session status and progress (question count, answered count).
+- `GET  /api/interview/{session_token}/next-question` — Retrieve the next unanswered question with source traceability metadata.
+- `POST /api/interview/{session_token}/answer` — Submit a candidate answer; scores it via Groq, adjusts difficulty, optionally generates an adaptive follow-up question (synchronously, within the same HTTP request).
+- `GET  /api/session/{session_token}/summary` — Generate a structured performance summary from stored Q&A records.
+- `GET  /health` — Health check. Returns `{"status": "ok", "app": "Viva"}`.
+- `GET  /docs` — OpenAPI interactive documentation (Swagger UI).
+
+> **Note:** All question generation (initial and adaptive follow-up) is **synchronous within the HTTP request**. There is no durable background worker, job queue, Celery, Redis, or WebSocket implementation in this codebase.
+
+## Offline Ingestion
+
+The textbook ingestion pipeline (`backend/scripts/`, `backend/ingestion/`) runs **outside** the deployed request API. It is a one-time offline operation that populates the `chunks` and `chunk_sources` tables in Supabase. It must not be run as part of Vercel build commands or startup hooks.
+
+## Deployment
+
+- **Frontend:** React + Vite deployed to Vercel (existing project).
+- **Backend:** FastAPI deployed to Vercel as a separate project (Root Directory: `backend`). Railway remains available as a rollback deployment until production Vercel verification is complete. Do not retire Railway until the owner explicitly authorizes it.
+- **Database:** Supabase PostgreSQL + pgvector (unchanged).
 
 ## RAG Retrieval Mechanism
 

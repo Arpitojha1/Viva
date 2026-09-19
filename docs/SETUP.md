@@ -29,7 +29,7 @@ The backend handles document ingestion, RAG generation, and exposes the API.
 
 2. **Install dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
    ```
 
 3. **Configure Environment Variables:**
@@ -56,7 +56,7 @@ The backend handles document ingestion, RAG generation, and exposes the API.
 
 6. **Start the Dev Server:**
    ```bash
-   uvicorn main:app --reload
+   uvicorn app.main:app --reload
    ```
    The API will be available at `http://localhost:8000`.
 
@@ -76,11 +76,14 @@ The frontend provides the interactive interview experience.
    ```
 
 3. **Configure Environment Variables:**
-   Copy the example file to `.env.local`:
+   Copy the example file to `.env`:
    ```bash
-   cp .env.local.example .env.local
+   cp .env.example .env
    ```
-   Ensure the API base URL is pointed to your local backend (usually `http://localhost:8000`).
+   Set `VITE_API_BASE_URL` to your local backend URL:
+   ```
+   VITE_API_BASE_URL=http://localhost:8000/api
+   ```
 
 4. **Start the Dev Server:**
    ```bash
@@ -98,14 +101,60 @@ To verify the setup is working correctly:
 
 ## Deployment Notes
 
-Viva is designed to be deployed using Vercel for the frontend and Railway for the backend.
+Viva uses Vercel for both the frontend and backend, with Railway remaining as a rollback option.
 
-### Backend (Railway)
-- Deploy the `backend/` directory as a service.
-- **Environment Variables:** Set `DATABASE_URL` (production Supabase instance) and `GROQ_API_KEY`.
-- Also set `ALLOWED_ORIGINS` to the URL of your Vercel frontend deployment to configure CORS properly.
-- Railway's build process will automatically detect `requirements.txt` and install dependencies. Set the start command to `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+### Backend (Vercel — new)
+
+Deploy the `backend/` directory as a **separate** Vercel project:
+
+- **Repository:** `Arpitojha1/Viva`
+- **Root Directory:** `backend`
+- **Framework:** Python (automatic detection)
+- **Build Command:** leave empty/default
+- **Install Command:** leave empty (Vercel installs `requirements.txt` automatically)
+
+**Required environment variables** (set in Vercel Dashboard → Project → Settings → Environment Variables):
+
+| Variable | Example / Note |
+|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:<pw>@db.<ref>.supabase.co:5432/postgres` |
+| `GROQ_API_KEY` | `gsk_...` (secret) |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` |
+| `GROQ_MODEL_GENERATION` | `llama-3.3-70b-versatile` |
+| `GROQ_MODEL_SCORING` | `llama-3.1-8b-instant` |
+| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` |
+| `EMBEDDING_DIM` | `384` |
+| `ENVIRONMENT` | `production` |
+| `ALLOWED_ORIGINS` | `https://your-frontend.vercel.app` (no trailing slash) |
+| `PRELOAD_EMBEDDING_MODEL` | `false` |
+| `MAX_RESUME_SIZE_MB` | `5` |
+| `RATE_LIMIT_RESUME` | `5/minute` |
+| `RATE_LIMIT_SESSION` | `10/minute` |
+| `INITIAL_QUESTION_COUNT` | `5` |
+| `MAX_ADAPTIVE_FOLLOWUPS` | `3` |
+| `QUESTION_BANK_MAX_PER_BATCH` | `5` |
+| `VERCEL_SUPPORT_LARGE_FUNCTIONS` | `1` (required — PyTorch bundle exceeds standard limit) |
+
+**Important:** Do NOT add `PORT` or Supabase anon/service-role keys.
+
+### Backend (Railway — rollback)
+
+The existing Railway service must remain **untouched and running** until the Vercel backend has been fully verified end-to-end in production. Do not pause, delete, or redeploy Railway until the project owner explicitly authorizes it.
+
+To restore the frontend to the Railway backend, update `VITE_API_BASE_URL` in the frontend Vercel project to point to the Railway URL, then redeploy.
 
 ### Frontend (Vercel)
-- Deploy the `frontend/` directory to Vercel.
-- **Environment Variables:** Set `NEXT_PUBLIC_API_BASE_URL` to your production Railway backend URL.
+
+Deploy the `frontend/` directory to Vercel (existing project).
+
+**Environment variable** (set in Vercel Dashboard → Project → Settings → Environment Variables):
+
+```
+VITE_API_BASE_URL=https://<your-viva-api>.vercel.app/api
+```
+
+The `/api` suffix is mandatory — `frontend/src/lib/api.ts` appends paths such as `/resume/upload` and `/session` to this base URL.
+
+Vite embeds environment variables at **build time**. After changing `VITE_API_BASE_URL`, trigger a new frontend deployment for the change to take effect.
+
+> **Do not update `VITE_API_BASE_URL` to point at the Vercel backend until the Vercel backend has been directly verified** (health check + end-to-end API test).

@@ -21,16 +21,16 @@ cd Viva
 cd backend
 python -m venv venv
 source venv/Scripts/activate  # Or venv/bin/activate on macOS/Linux
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env
 # Edit .env with your Supabase and Groq keys, then run:
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 
 # 3. Start the Frontend (in a new terminal)
 cd ../frontend
 npm install
-cp .env.local.example .env.local
-# Edit .env.local, then run:
+cp .env.example .env
+# Edit .env with VITE_API_BASE_URL=http://localhost:8000/api, then run:
 npm run dev
 ```
 
@@ -40,8 +40,8 @@ npm run dev
 - **Database:** PostgreSQL with pgvector (via Supabase) for relational and vector storage.
 - **LLM:** Groq (Llama 3 models) for ultra-fast, low-latency generation.
 - **Embeddings:** HuggingFace `sentence-transformers` running locally.
-- **Frontend:** Next.js (React, TypeScript, Tailwind CSS) for a responsive UI.
-- **Deployment:** Vercel (Frontend) and Railway (Backend).
+- **Frontend:** React + Vite (TypeScript, Tailwind CSS) for a responsive UI.
+- **Deployment:** Vercel (Frontend + Backend) — Railway retained as rollback until production verification.
 
 ### Documentation
 
