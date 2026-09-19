@@ -18,6 +18,34 @@ router = APIRouter(tags=["summary"])
 
 _DIFFICULTY_INT = {"Fundamentals": 1, "Intermediate": 2, "Advanced": 3}
 
+import time
+from typing import Dict, Tuple
+
+# TTL Cache for summaries: { session_token: (expiry_timestamp, SummaryResponse) }
+# Explicit TTL: 1 hour (3600 seconds).
+# Invalidation strategy: Time-based expiry, plus LRU-style eviction if cache exceeds 1000 items to prevent memory leaks.
+_SUMMARY_CACHE: Dict[str, Tuple[float, "SummaryResponse"]] = {}
+_CACHE_TTL_SECONDS = 3600
+_MAX_CACHE_SIZE = 1000
+
+def _get_cached_summary(token: str):
+    if token in _SUMMARY_CACHE:
+        expiry, response = _SUMMARY_CACHE[token]
+        if time.time() < expiry:
+            return response
+        else:
+            del _SUMMARY_CACHE[token]
+    return None
+
+def _set_cached_summary(token: str, response: "SummaryResponse"):
+    if len(_SUMMARY_CACHE) >= _MAX_CACHE_SIZE:
+        # Simple LRU-ish eviction: clear oldest 20%
+        oldest = sorted(_SUMMARY_CACHE.keys(), key=lambda k: _SUMMARY_CACHE[k][0])[: _MAX_CACHE_SIZE // 5]
+        for k in oldest:
+            _SUMMARY_CACHE.pop(k, None)
+    _SUMMARY_CACHE[token] = (time.time() + _CACHE_TTL_SECONDS, response)
+
+
 
 @router.get(
     "/session/{session_token}/summary",
@@ -34,6 +62,10 @@ async def get_summary(
 
     Requires the session to have at least one answered question.
     """
+    cached = _get_cached_summary(session_token)
+    if cached:
+        return cached
+
     from app.utils.session_lookup import get_session_by_token
     session_row = await get_session_by_token(session_token, db)
     session_id = session_row.id
@@ -71,15 +103,23 @@ async def get_summary(
     from app.schemas import TranscriptItem, QuestionResponse, SourceInfo
     from app.models import ChunkSource
 
+    # Batch fetch chunk sources to prevent N+1 queries
+    chunk_ids_to_fetch = [q.chunk_ids[0] for q, a in rows if q.chunk_ids]
+    chunk_sources_map = {}
+    if chunk_ids_to_fetch:
+        src_result = await db.execute(
+            select(ChunkSource).where(ChunkSource.chunk_id.in_(chunk_ids_to_fetch))
+        )
+        for src_row in src_result.scalars():
+            if src_row.chunk_id not in chunk_sources_map:
+                chunk_sources_map[src_row.chunk_id] = src_row
+
     transcript_items = []
     for q, a in rows:
         # Resolve primary source
         source = SourceInfo(book="Knowledge Base", chapter="See source", page=None, similarity=0.85)
         if q.chunk_ids:
-            src_result = await db.execute(
-                select(ChunkSource).where(ChunkSource.chunk_id == q.chunk_ids[0]).limit(1)
-            )
-            src_row = src_result.scalar_one_or_none()
+            src_row = chunk_sources_map.get(q.chunk_ids[0])
             if src_row:
                 book_display = {
                     "mitchell": "Machine Learning (Mitchell)",
@@ -133,7 +173,7 @@ async def get_summary(
         score_dist[key] = score_dist.get(key, 0) + 1
 
     from app.schemas import ScoreDistribution
-    return SummaryResponse(
+    response = SummaryResponse(
         overallAssessment=summary_data.overall_assessment,
         strengths=summary_data.strengths,
         gaps=summary_data.gaps,
@@ -142,3 +182,5 @@ async def get_summary(
         transcript=transcript_items,
         performanceSeries=performance_series,
     )
+    _set_cached_summary(session_token, response)
+    return response
