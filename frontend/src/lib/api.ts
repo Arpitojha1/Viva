@@ -49,9 +49,15 @@ export type Summary = {
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-const BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  'http://localhost:8000/api';
+let BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000/api';
+// Defensively strip trailing slash
+if (BASE_URL.endsWith('/')) {
+  BASE_URL = BASE_URL.slice(0, -1);
+}
+// Defensively append /api if the user forgot it in their Vercel env vars
+if (!BASE_URL.endsWith('/api')) {
+  BASE_URL += '/api';
+}
 
 // Module-level resume ID — set after upload, consumed by createSession.
 // Survives component re-renders but resets on full page reload (acceptable for this build).
