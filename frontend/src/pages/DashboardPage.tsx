@@ -58,8 +58,18 @@ export function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-[100dvh] pt-14 flex items-center justify-center">
-        <div className="font-mono text-sm tracking-widest text-muted-foreground animate-pulse">LOADING_HISTORY...</div>
+      <div className="min-h-[100dvh] pt-24 px-6 pb-24 flex justify-center">
+        <div className="w-full max-w-5xl space-y-12 animate-pulse">
+          <div className="space-y-4 border-b border-hairline pb-8">
+            <div className="h-12 w-64 bg-muted rounded"></div>
+            <div className="h-6 w-96 bg-muted rounded"></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="workflow-card glass-panel p-6 h-48"></div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

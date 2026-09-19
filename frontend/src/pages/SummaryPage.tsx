@@ -44,8 +44,18 @@ export function SummaryPage() {
 
   if (isLoading || !summary) {
     return (
-      <div className="min-h-[100dvh] pt-14 flex items-center justify-center">
-        <div className="font-mono text-sm tracking-widest text-muted-foreground animate-pulse">COMPILING_REPORT...</div>
+      <div className="min-h-[100dvh] pt-24 px-6 pb-24 flex justify-center">
+        <div className="w-full max-w-4xl space-y-12 animate-pulse">
+          <div className="space-y-4 border-b border-hairline pb-8">
+            <div className="h-4 w-32 bg-muted rounded"></div>
+            <div className="h-12 w-64 bg-muted rounded"></div>
+            <div className="h-6 w-full max-w-2xl bg-muted rounded"></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="glass-panel p-6 h-64 bg-muted"></div>
+            <div className="glass-panel p-6 h-64 bg-muted"></div>
+          </div>
+        </div>
       </div>
     );
   }
