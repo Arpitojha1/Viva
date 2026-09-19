@@ -25,9 +25,13 @@ settings = get_settings()
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     echo=settings.environment == "development",
-    pool_size=5,
-    max_overflow=10,
+    pool_size=1,
+    max_overflow=2,
     pool_pre_ping=True,
+    pool_recycle=300,
+    # NOTE: If migrating to Supabase transaction-mode pooler (port 6543),
+    # also pass: connect_args={"prepared_statement_cache_size": 0}
+    # and use the pooler URI. Verify with the project owner before changing.
 )
 
 AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(

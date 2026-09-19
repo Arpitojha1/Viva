@@ -40,15 +40,20 @@ This document outlines the major architectural and technical decisions made duri
 
 **Why:** A similarity threshold is a deliberate precision/recall trade-off. We chose a threshold that biases toward precision (preventing duplicates). If multiple identical chunks are retrieved during an interview, it starves the context window of diverse information, degrading the LLM's ability to ask well-rounded questions. The trade-off is that we might occasionally drop a conceptually similar chunk that had a slightly different technical nuance.
 
-## Question Generation: Sync Initial vs. Async Follow-ups
+## Question Generation: All-Synchronous HTTP Requests
 
-**Decision:** The generation of the *initial* question is a synchronous API call, whereas the generation of *follow-up* questions is handled asynchronously.
+**Decision:** Both the initial question set and adaptive follow-up questions are generated **synchronously within the HTTP request** before the response is returned.
 
 **Alternatives:**
-- Make everything synchronous: Forces the frontend to block and wait during generation.
-- Make everything asynchronous: Requires complex polling or WebSocket setups for the very first interaction.
+- Async/background workers (Celery, FastAPI BackgroundTasks, Redis queue): Allows the API to return immediately while generation runs in the background, requiring client polling or WebSocket push.
+- WebSocket connection: Enables streaming progress updates during multi-second generation.
 
-**Why:** This decision originated from addressing a race condition in the state machine. The initial question needs to be ready immediately to start the interview, so the frontend awaits it synchronously. However, for follow-up questions, evaluating the candidate's answer and generating the next adaptive question takes time. Doing this synchronously led to timeout risks and UI freezing. By decoupling them—evaluating the answer synchronously, then triggering the next question generation asynchronously—the UI can display a loading state cleanly without dropping connections, showing engineering maturity in handling state transitions.
+**Why synchronous:** The initial question set must be ready before the interview can start, so the frontend awaits it. For follow-up questions, generating asynchronously would require a separate polling endpoint or WebSocket, adding complexity to both the frontend state machine and the backend infrastructure. Because Groq's LPU inference is very fast (sub-second for typical prompts), the synchronous approach keeps the architecture simple without causing unacceptable latency under normal conditions.
+
+**Trade-offs:**
+- Simplicity: No job queue, no polling, no WebSocket infrastructure.
+- Timeout risk: On Vercel, session creation (which includes initial question generation) can take 5–15 seconds. The `maxDuration: 300` setting in `vercel.json` covers this. Groq rate-limit retries (via `tenacity`) could push individual requests toward the limit in high-traffic scenarios.
+- No durable background worker: The codebase does not contain Celery, Redis, FastAPI `BackgroundTasks`, Socket.IO, or WebSocket implementations.
 
 ## Difficulty Tiers and Proxy Metrics
 

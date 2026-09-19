@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # --- Embeddings ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
+    # Set PRELOAD_EMBEDDING_MODEL=false on Vercel to skip model load at cold start.
+    # Set true (default) for long-running local/Railway servers to avoid first-request latency.
+    preload_embedding_model: bool = True
 
     # --- Ingestion ---
     books_dir: str = "data/books"
