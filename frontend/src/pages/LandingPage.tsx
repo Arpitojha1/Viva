@@ -100,7 +100,7 @@ export function LandingPage() {
             <div className="relative group">
               <div className="absolute -inset-4 bg-accent/5 rounded-2xl blur-2xl group-hover:bg-accent/10 transition-colors duration-500"></div>
               <div className="bg-panel border border-hairline rounded-xl overflow-hidden shadow-2xl aspect-[16/10] relative z-10">
-                <img src="/screenshots/upload.png" alt="Upload interface" className="w-full h-full object-cover object-top" />
+                <img src="/screenshots/upload.webp" alt="Upload interface" className="w-full h-full object-cover object-top" width="1280" height="800" loading="lazy" />
               </div>
             </div>
           </div>
@@ -112,7 +112,7 @@ export function LandingPage() {
             <div className="relative group lg:order-first order-last">
               <div className="absolute -inset-4 bg-accent/5 rounded-2xl blur-2xl group-hover:bg-accent/10 transition-colors duration-500"></div>
               <div className="bg-panel border border-hairline rounded-xl overflow-hidden shadow-2xl aspect-[16/10] relative z-10">
-                <img src="/screenshots/interview.png" alt="Live Interview interface" className="w-full h-full object-cover object-top" />
+                <img src="/screenshots/interview.webp" alt="Live Interview interface" className="w-full h-full object-cover object-top" width="1280" height="800" loading="lazy" />
               </div>
             </div>
             <div className="max-w-xl lg:ml-auto">
@@ -138,7 +138,7 @@ export function LandingPage() {
             <div className="relative group">
               <div className="absolute -inset-4 bg-accent/5 rounded-2xl blur-2xl group-hover:bg-accent/10 transition-colors duration-500"></div>
               <div className="bg-panel border border-hairline rounded-xl overflow-hidden shadow-2xl aspect-[16/10] relative z-10">
-                <img src="/screenshots/summary.png" alt="Detailed Summary View" className="w-full h-full object-cover object-top" />
+                <img src="/screenshots/summary.webp" alt="Detailed Summary View" className="w-full h-full object-cover object-top" width="1280" height="800" loading="lazy" />
               </div>
             </div>
           </div>
@@ -150,7 +150,7 @@ export function LandingPage() {
             <div className="relative group lg:order-first order-last">
               <div className="absolute -inset-4 bg-accent/5 rounded-2xl blur-2xl group-hover:bg-accent/10 transition-colors duration-500"></div>
               <div className="bg-panel border border-hairline rounded-xl overflow-hidden shadow-2xl aspect-[16/10] relative z-10">
-                <img src="/screenshots/dashboard.png" alt="Session History Dashboard" className="w-full h-full object-cover object-top" />
+                <img src="/screenshots/dashboard.webp" alt="Session History Dashboard" className="w-full h-full object-cover object-top" width="1280" height="800" loading="lazy" />
               </div>
             </div>
             <div className="max-w-xl lg:ml-auto">
