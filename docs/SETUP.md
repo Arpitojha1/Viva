@@ -133,7 +133,7 @@ Deploy the `backend/` directory as a **separate** Vercel project:
 | `INITIAL_QUESTION_COUNT` | `5` |
 | `MAX_ADAPTIVE_FOLLOWUPS` | `3` |
 | `QUESTION_BANK_MAX_PER_BATCH` | `5` |
-| `VERCEL_SUPPORT_LARGE_FUNCTIONS` | `1` (required — PyTorch bundle exceeds standard limit) |
+| `FASTEMBED_CACHE_PATH` | `/tmp/fastembed_cache` |
 
 **Important:** Do NOT add `PORT` or Supabase anon/service-role keys.
 

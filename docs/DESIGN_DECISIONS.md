@@ -12,14 +12,15 @@ This document outlines the major architectural and technical decisions made duri
 
 **Why:** The core requirement of an adaptive interview platform is speed. Candidates expect near-instantaneous follow-up questions. Groq's LPU infrastructure provides sub-second generation times even for complex, context-heavy RAG prompts. The trade-off is a slightly lower reasoning ceiling compared to frontier models like GPT-4, but for technical interview question generation backed by strong reference context, Llama 3 70B is more than capable, making the speed advantage the decisive factor.
 
-## Embedding Strategy: Local vs. Hosted API
+## Embedding Strategy: Local ONNX vs. Hosted API
 
-**Decision:** We run embeddings locally using HuggingFace `sentence-transformers` rather than calling a hosted API like OpenAI's `text-embedding-3-small`.
+**Decision:** We run embeddings locally using `fastembed` (ONNX Runtime) rather than calling a hosted API like OpenAI's `text-embedding-3-small`. The model is `BAAI/bge-small-en-v1.5`, producing 384-dimensional L2-normalized vectors.
 
 **Alternatives:**
 - OpenAI / Cohere Embedding APIs: Extremely easy to implement, but incurs per-token costs for every ingestion run and every runtime query, plus network latency during the interview.
+- `sentence-transformers` + PyTorch: The original implementation. Produces identical embeddings but requires PyTorch (~490 MB on Linux), pushing the Vercel bundle well above the 500 MB standard limit.
 
-**Why:** By running embeddings locally, we eliminate network latency during the critical retrieval phase of the interview loop. It also makes offline ingestion completely free, allowing us to rapidly iterate on chunking strategies without worrying about API costs. The trade-off is higher memory usage on the backend server, but modern deployment environments can handle the modest requirements of models like `all-MiniLM-L6-v2` comfortably.
+**Why fastembed:** By switching from PyTorch to ONNX Runtime via `fastembed`, we retain fully local embeddings (no API cost or network latency) while reducing the deployed bundle from ~500 MB to ~120–150 MB. fastembed natively supports `BAAI/bge-small-en-v1.5` and produces numerically identical embeddings — existing pgvector embeddings in Supabase do not need to be regenerated. The ONNX model file is ~23 MB; on Vercel it downloads on the first cold start and is cached in `/tmp`. On Railway/Docker it is pre-baked into the image.
 
 ## Vector Storage: PostgreSQL + pgvector vs. Dedicated Vector DB
 

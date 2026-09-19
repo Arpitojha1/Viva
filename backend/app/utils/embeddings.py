@@ -1,14 +1,16 @@
 """
-Viva — Local Sentence-Transformers Embeddings
-Lazy-loads BAAI/bge-small-en-v1.5 once on first use.
+Viva — Local ONNX Embeddings (fastembed)
+Lazy-loads BAAI/bge-small-en-v1.5 via fastembed (ONNX Runtime, no PyTorch).
 Applies the recommended query prefix for retrieval tasks.
 Runs synchronously (CPU-bound); call from a thread pool in async context.
+
+fastembed produces numerically identical embeddings to sentence-transformers
+for this model — existing pgvector embeddings in the database remain valid.
 """
 import logging
+import os
 from functools import lru_cache
 from typing import List
-
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -16,22 +18,26 @@ logger = logging.getLogger(__name__)
 # Apply to QUERY strings only — NOT to document/chunk text at ingestion time.
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
+# On Vercel only /tmp is writable. Default to /tmp so fastembed can write the
+# downloaded ONNX model weights. Override via FASTEMBED_CACHE_PATH env var.
+_CACHE_DIR = os.environ.get("FASTEMBED_CACHE_PATH", "/tmp/fastembed_cache")
+
 
 @lru_cache(maxsize=1)
 def _get_model():
-    """Load and cache the SentenceTransformer model (singleton)."""
-    from sentence_transformers import SentenceTransformer
+    """Load and cache the fastembed TextEmbedding model (singleton)."""
+    from fastembed import TextEmbedding
     from app.config import get_settings
     model_name = get_settings().embedding_model
-    logger.info("Loading embedding model: %s", model_name)
-    model = SentenceTransformer(model_name)
+    logger.info("Loading embedding model: %s (fastembed/ONNX, cache: %s)", model_name, _CACHE_DIR)
+    model = TextEmbedding(model_name=model_name, cache_dir=_CACHE_DIR)
     logger.info("Embedding model loaded successfully")
     return model
 
 
 def embed_texts(texts: List[str], is_query: bool = False) -> List[List[float]]:
     """
-    Embed a list of texts using BAAI/bge-small-en-v1.5.
+    Embed a list of texts using BAAI/bge-small-en-v1.5 via fastembed (ONNX).
 
     Args:
         texts: List of strings to embed.
@@ -45,18 +51,12 @@ def embed_texts(texts: List[str], is_query: bool = False) -> List[List[float]]:
     if not texts:
         return []
 
-    model = _get_model()
-
     if is_query:
         texts = [QUERY_PREFIX + t for t in texts]
 
-    embeddings: np.ndarray = model.encode(
-        texts,
-        normalize_embeddings=True,  # L2-normalize; cosine sim = dot product
-        show_progress_bar=False,
-        batch_size=64,
-    )
-    return embeddings.tolist()
+    model = _get_model()
+    # fastembed.embed() returns an iterator of L2-normalized numpy arrays.
+    return [emb.tolist() for emb in model.embed(texts)]
 
 
 def embed_query(query: str) -> List[float]:
