@@ -20,20 +20,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # 1. Add non-blocking vector HNSW index for cosine distance
-    # Requires setting statement timeout or transactional=False if creating concurrently,
-    # but for simple Alembic we can use standard CREATE INDEX if it's not a large table, 
-    # but best practice for pgvector is CREATE INDEX.
-    # Note: postgresql_ops={'embedding': 'vector_cosine_ops'} is needed for <=> queries
+    op.get_bind().execution_options(isolation_level="AUTOCOMMIT")
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_chunks_embedding_cosine ON chunks USING hnsw (embedding vector_cosine_ops);"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_chunks_embedding_cosine ON chunks USING hnsw (embedding vector_cosine_ops);"
     )
 
     # 2. Add foreign key indexes
-    op.create_index('ix_questions_session_id', 'questions', ['session_id'])
-    op.create_index('ix_answers_question_id', 'answers', ['question_id'])
+    op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_questions_session_id ON questions (session_id);")
+    op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_answers_question_id ON answers (question_id);")
 
 
 def downgrade() -> None:
-    op.drop_index('ix_answers_question_id', table_name='answers')
-    op.drop_index('ix_questions_session_id', table_name='questions')
-    op.execute("DROP INDEX IF EXISTS ix_chunks_embedding_cosine;")
+    op.get_bind().execution_options(isolation_level="AUTOCOMMIT")
+    op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_answers_question_id;")
+    op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_questions_session_id;")
+    op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_chunks_embedding_cosine;")
