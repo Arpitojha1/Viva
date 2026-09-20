@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, Summary } from '../lib/api';
+import { MathText } from '../components/MathText';
 
 type SessionData = {
   id: string;
@@ -139,6 +140,25 @@ export function DashboardPage() {
                     <h3 className="text-lg font-display tracking-tight mb-3 line-clamp-2 pr-4">
                       {session.summary.overallAssessment.split('.')[0]}.
                     </h3>
+
+                    {session.summary.transcript && session.summary.transcript.length > 0 && (
+                      <div className="w-full mt-2 space-y-2 mb-4">
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest block border-b border-hairline/30 pb-1">Questions Answered:</span>
+                        <ul className="text-xs text-muted-foreground space-y-1">
+                          {session.summary.transcript.slice(0, 3).map((t, idx) => (
+                            <li key={idx} className="line-clamp-1 flex items-start gap-2">
+                              <span className="text-[10px] opacity-50 mt-0.5">Q{idx+1}</span>
+                              <span className="truncate flex-1"><MathText text={t.question.text} /></span>
+                            </li>
+                          ))}
+                          {session.summary.transcript.length > 3 && (
+                            <li className="text-[10px] italic opacity-50 pl-6">
+                              + {session.summary.transcript.length - 3} more
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
                     
                     <div className="mt-auto pt-4 flex flex-wrap gap-2 w-full">
                       <span className="font-mono text-[9px] uppercase border border-hairline px-2 py-1 rounded-full text-green-500 bg-green-500/10">
