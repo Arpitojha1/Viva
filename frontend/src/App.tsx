@@ -5,6 +5,7 @@
 
 import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { HUD } from './components/HUD';
 
 const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -34,6 +35,7 @@ export default function App() {
           </Routes>
         </Suspense>
       </main>
+      <SpeedInsights />
     </Router>
   );
 }
